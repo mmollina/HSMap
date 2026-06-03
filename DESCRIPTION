@@ -39,5 +39,7 @@ RoxygenNote: 7.3.3
 SystemRequirements: GNU make
 Suggests:
     knitr,
-    rmarkdown
+    rmarkdown,
+    testthat (>= 3.0.0)
 VignetteBuilder: knitr
+Config/testthat/edition: 3
