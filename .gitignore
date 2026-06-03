@@ -34,3 +34,6 @@ dev/validation/results/
 inst/doc/
 docs/
 .positai
+
+# Internal planning/review notes (kept local, not published)
+REASSESSMENT.md
