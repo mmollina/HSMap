@@ -24,8 +24,8 @@
 .DS_Store
 Thumbs.db
 
-# Personal Claude Code overrides (project settings.json may be shared)
-.claude/settings.local.json
+# Claude Code session/tooling config (local only, not part of the package)
+.claude/
 
 # Generated validation outputs (scripts are tracked; results are regenerable)
 dev/validation/results/
