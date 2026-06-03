@@ -70,6 +70,22 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// loglik_hs_cpp
+double loglik_hs_cpp(Rcpp::IntegerMatrix G, Rcpp::IntegerVector M, Rcpp::IntegerVector phase_vec, Rcpp::NumericVector r, Rcpp::NumericMatrix pi_emis, double epsilon);
+RcppExport SEXP _HSMap_loglik_hs_cpp(SEXP GSEXP, SEXP MSEXP, SEXP phase_vecSEXP, SEXP rSEXP, SEXP pi_emisSEXP, SEXP epsilonSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::IntegerMatrix >::type G(GSEXP);
+    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type M(MSEXP);
+    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type phase_vec(phase_vecSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type r(rSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type pi_emis(pi_emisSEXP);
+    Rcpp::traits::input_parameter< double >::type epsilon(epsilonSEXP);
+    rcpp_result_gen = Rcpp::wrap(loglik_hs_cpp(G, M, phase_vec, r, pi_emis, epsilon));
+    return rcpp_result_gen;
+END_RCPP
+}
 // simulate_offspring_cpp
 Rcpp::List simulate_offspring_cpp(Rcpp::IntegerVector M, Rcpp::NumericMatrix pi_true, Rcpp::NumericVector r_true, int n_offspring, double error_rate, bool keep_paths, Rcpp::Nullable<Rcpp::IntegerVector> z_phase_in);
 RcppExport SEXP _HSMap_simulate_offspring_cpp(SEXP MSEXP, SEXP pi_trueSEXP, SEXP r_trueSEXP, SEXP n_offspringSEXP, SEXP error_rateSEXP, SEXP keep_pathsSEXP, SEXP z_phase_inSEXP) {
@@ -111,6 +127,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_HSMap_hmm_hs_cpp_parallel", (DL_FUNC) &_HSMap_hmm_hs_cpp_parallel, 12},
     {"_HSMap_gamma_cpp", (DL_FUNC) &_HSMap_gamma_cpp, 6},
     {"_HSMap_hmm_hs_joint_cpp", (DL_FUNC) &_HSMap_hmm_hs_joint_cpp, 12},
+    {"_HSMap_loglik_hs_cpp", (DL_FUNC) &_HSMap_loglik_hs_cpp, 6},
     {"_HSMap_simulate_offspring_cpp", (DL_FUNC) &_HSMap_simulate_offspring_cpp, 7},
     {"_HSMap_pairwise_rf_estimation_multi_parallel_cpp", (DL_FUNC) &_HSMap_pairwise_rf_estimation_multi_parallel_cpp, 9},
     {NULL, NULL, 0}

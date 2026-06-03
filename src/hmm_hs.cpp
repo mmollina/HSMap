@@ -958,3 +958,54 @@ Rcpp::List hmm_hs_joint_cpp(Rcpp::List G_list,                                  
   }
   return out;
 }
+
+
+// ------------------------------------------------------------------
+// Total HMM log-likelihood for one dam at a FIXED recombination vector r.
+// Forward pass with per-position scaling, summed over offspring. Used by the
+// per-dam map-heterogeneity (eta) test, which evaluates the likelihood at
+// scaled maps without re-running EM.
+// ------------------------------------------------------------------
+
+// [[Rcpp::export]]
+double loglik_hs_cpp(Rcpp::IntegerMatrix G,           // n x T offspring genotypes 0/1/2/NA
+                     Rcpp::IntegerVector M,           // length T maternal genotypes
+                     Rcpp::IntegerVector phase_vec,   // length T-1, 0 = repulsion, 1 = coupling
+                     Rcpp::NumericVector r,           // length T-1 recombination fractions
+                     Rcpp::NumericMatrix pi_emis,     // 3 x T paternal genotype freqs (AA,Aa,aa)
+                     double epsilon = 1e-3)
+{
+  const int n = G.nrow();
+  const int T = G.ncol();
+  if (M.size() != T)            stop("M length must equal ncol(G)");
+  if (phase_vec.size() != T-1)  stop("phase_vec must have length T-1");
+  if (r.size() != T-1)          stop("r must have length T-1");
+  if (pi_emis.nrow() != 3 || pi_emis.ncol() != T) stop("pi_emis must be 3 x T");
+
+  RMatrix<double> Piem(pi_emis);
+
+  double total_ll = 0.0;
+  for (int i=0; i<n; ++i) {
+    double e[2];
+    emission_vec_wrapped(G(i,0), Piem, 0, M[0], epsilon, e);
+    double a0 = 0.5*e[0], a1 = 0.5*e[1];
+    double sc = a0 + a1; if (sc <= 0.0) sc = 1e-15;
+    double ll = std::log(sc);
+    a0 /= sc; a1 /= sc;
+
+    for (int t=0; t<T-1; ++t) {
+      const double p_same = (phase_vec[t] == 1 ? (1.0 - r[t]) : r[t]);
+      const double p_diff = 1.0 - p_same;
+      const double na0 = a0*p_same + a1*p_diff;
+      const double na1 = a1*p_same + a0*p_diff;
+      emission_vec_wrapped(G(i,t+1), Piem, t+1, M[t+1], epsilon, e);
+      double b0 = na0 * e[0];
+      double b1 = na1 * e[1];
+      double s = b0 + b1; if (s <= 0.0) s = 1e-15;
+      ll += std::log(s);
+      a0 = b0/s; a1 = b1/s;
+    }
+    total_ll += ll;
+  }
+  return total_ll;
+}

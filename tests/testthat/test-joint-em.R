@@ -2,23 +2,7 @@
 # Framing: the joint EM is the likelihood-based estimator implied by the model;
 # the consensus (per-dam offspring-weighted average) is a diagnostic that behaves
 # like shrinkage toward r_start.
-
-make_dat <- function(sim) {
-  structure(list(G_list = sim$G_list, M_list = sim$M_list), class = "HSMap.data")
-}
-oracle_phased <- function(markers, phase_vec, dam) {
-  structure(list(dam = dam, order = markers,
-                 clusters = integer(length(markers)),
-                 phase_vec = as.integer(phase_vec)),
-            class = "HSMap.phased")
-}
-oracle_multi <- function(sim, markers) {
-  res <- lapply(seq_along(sim$G_list), function(g)
-    oracle_phased(markers, 1L - sim$truth$v_true[[g]], names(sim$G_list)[g]))
-  names(res) <- names(sim$G_list)
-  class(res) <- "HSMap.phased.multi"
-  res
-}
+# Shared helpers (make_dat, oracle_phased, oracle_multi) live in helper-sim.R.
 
 test_that("joint EM with a single dam reproduces the single-dam path", {
   RcppParallel::setThreadOptions(numThreads = 1)
