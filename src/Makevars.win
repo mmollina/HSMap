@@ -1,0 +1,2 @@
+# Windows counterpart: link the RcppParallel runtime (TBB / TinyThread).
+PKG_LIBS += $(shell "${R_HOME}/bin${R_ARCH_BIN}/Rscript.exe" -e "RcppParallel::RcppParallelLibs()")

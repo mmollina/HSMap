@@ -1,0 +1,35 @@
+# Compiled objects / shared libraries (regenerated on build)
+*.o
+*.so
+*.dll
+*.a
+*.dylib
+
+# R session / history / data
+.Rhistory
+.RData
+.Rapp.history
+.Ruserdata
+*.rds
+
+# RStudio
+.Rproj.user/
+
+# R CMD build / check artifacts
+*.tar.gz
+*.Rcheck/
+/..Rcheck/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Personal Claude Code overrides (project settings.json may be shared)
+.claude/settings.local.json
+
+# Generated validation outputs (scripts are tracked; results are regenerable)
+dev/validation/results/
+
+# Vignette / pkgdown build output
+inst/doc/
+docs/

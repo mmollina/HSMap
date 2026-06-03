@@ -1,0 +1,9 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^LICENSE\.md$
+^.*\doc$
+^REASSESSMENT\.md$
+^dev(/|$)
+^\.claude$
+^\.git$
+^\.gitignore$

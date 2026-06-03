@@ -1,0 +1,466 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath, amssymb, bm, mathtools}
+\usepackage{booktabs}
+\usepackage{microtype}   % improves line breaking/kerning
+\usepackage{hyperref}    % for \texorpdfstring and hyperlinks
+\usepackage{xcolor}
+\usepackage{natbib}
+\bibliographystyle{apalike}
+
+\allowdisplaybreaks      % allow page breaks in long derivations
+\emergencystretch=1.5em  % gentle extra stretch to avoid overfull boxes
+
+\title{Inference of Recombination and Maternal Linkage Phase in Open-Pollinated Diploid Families}
+\author{Marcelo Mollinari, Kim McKeever, Molly Irvin, Fikret Isik}
+\date{September 2025}
+
+\begin{document}
+\maketitle
+\section{Methods}
+
+\subsection{Overview}
+We infer maternal recombination and linkage phase in diploid half-sib families with multiple dams and unknown sires. For each dam, transmission along an ordered marker set is modeled with a maternal-only hidden Markov model. The hidden chain identifies which maternal homolog is transmitted, transitions reflect recombination between adjacent markers, and emissions link the hidden homolog to observed offspring genotypes while averaging over the unknown paternal contribution.
+
+We model inheritance along ordered markers with a hidden Markov model (HMM), where the latent state at marker $t$ encodes which maternal homolog was transmitted to each offspring. Transitions between states are governed by the recombination fractions between adjacent markers, and emissions are the offspring genotype likelihoods given the transmitted maternal homolog and a per-dam error model. Parameters are estimated by maximum likelihood using forward and backward recursions with per-position scaling \citep{Rabiner1989}. To avoid introducing an additional latent layer for phase, we infer each dam’s chromosomal phase externally and hold it fixed during HMM fitting. When several dams are analyzed together, we fit one recombination map across families, while phase and emissions remain dam specific. Pooling families in a single framework increases effective sample size for estimating recombination and improves precision, especially when individual families are small.
+
+
+We work under the following minimal assumptions: ($i$) the marker order is fixed; ($ii$) meioses are independent across offspring; ($iii$) a single female recombination map is shared across dams; ($iv$) genotyping errors are independent across loci and individuals; ($v$) allele transmission follows Mendelian segregation without distortion; and ($vi$) the paternal contribution is integrated out using either a single-locus model with a free per-marker genotype frequencies or a Hardy–Weinberg parameterization as detailed later.
+
+\subsection{Model Setup and Notation}
+Let $M_1,\ldots,M_z$ denote $z$ ordered markers along a chromosome. The key parameter vector is $\mathbf r=(r_1,\ldots,r_{z-1})$, where $r_k\in[0,0.5]$ is the recombination fraction between markers $M_k$ and $M_{k+1}$. Let $n$ denote the total number of offspring considered across all dams.
+
+We first define the model for a single dam and its offspring, then describe its extension to multiple families. A dam’s genotype consists of two homologous chromosomes, indexed by $j\in\{1,2\}$. The linkage phase at the interval between markers $k$ and $k+1$ describes the arrangement of alleles on these homologs. For an offspring $i$, the HMM’s hidden state at locus $k$, denoted $S_{ik}$, is the index of the maternal homolog transmitted to that offspring:
+\[
+S_{ik}\in\{1,2\}.
+\]
+If $S_{ik}=j$, the dam passed the segment of its $j$-th homolog containing marker $M_k$ to offspring $i$. Equivalently, write $A_k^{(j)}\in\{A,a\}$ for the allele carried on the $j$-th homolog at marker $k$. The observed data for offspring $i$ is a vector of genotype calls $(y_{i1},\ldots,y_{iz})$, where each $y_{ik}$ is coded as $\{2,1,0\}$ for genotypes $\{\mathrm{AA},\mathrm{Aa},\mathrm{aa}\}$ or $\varnothing$ for missing data. The dam’s genotype at locus $k$ is similarly denoted $G_k\in\{2,1,0\}$.
+
+\subsection{Transition Model}\label{sec:transition}
+The transition between hidden states $S_{ik}$ and $S_{i,k+1}$ depends on the recombination
+fraction $r_k$ between adjacent markers $M_k$ and $M_{k+1}$. Since $S_{ik}\in\{1,2\}$ indexes
+which maternal homolog is transmitted at marker $k$, a nonrecombinant meiosis preserves the
+homolog index while a recombinant meiosis switches it. Thus, the transition probability matrix
+$\mathbf T_k(j',j)=\Pr(S_{i,k+1}=j'\mid S_{ik}=j)$ is
+\[
+\mathbf T_k=
+\begin{pmatrix}
+1-r_k & r_k\\
+r_k & 1-r_k
+\end{pmatrix}.
+\]
+Linkage phase enters through the allele labels $A_k^{(j)}$ (or $A_k^{(d,j)}$ in the multi-dam setting) used in the emission model (Section~\ref{emission}).
+
+\subsection{Joint Analysis Across Multiple Dams}
+For $D$ dams, index families by $d\in\{1,\ldots,D\}$. We estimate a single recombination map
+$\mathbf r=(r_1,\ldots,r_{z-1})$ shared across all dams, while allowing dam-specific linkage
+phase configurations. Specifically, each dam $d$ has a phase configuration
+$\boldsymbol{\psi}^{(d)}=(\psi_1^{(d)},\ldots,\psi_{z-1}^{(d)})$, where $\psi_k^{(d)}$
+records whether the two alleles at markers $(k,k{+}1)$ are in coupling or repulsion.
+For offspring $i$ of dam $d$, the hidden state $S_{ik}^{(d)}\in\{1,2\}$ indicates which
+maternal homolog was transmitted at marker $k$.
+
+Given the dam's genotypes $\{G_k^{(d)}\}$, the phase array $\boldsymbol{\psi}^{(d)}$
+induces a consistent labeling of alleles on the two maternal homologs along the marker order.
+Concretely, after choosing the labeling at one anchor marker, each adjacent phase
+$\psi_k^{(d)}$ specifies whether the homolog labels are carried forward unchanged
+(coupling) or swapped (repulsion), yielding $\{A_k^{(d,1)},A_k^{(d,2)}\}_{k=1}^z$. For example, for markers $A$, $B$, and $C$, with coupling between $A-B$
+and repulsion between $B-C$, the induced homolog labeling can be
+represented by the ordered pairs
+\[
+(A_1^{(d,1)},A_1^{(d,2)})=(A,a),\quad
+(A_2^{(d,1)},A_2^{(d,2)})=(B,b),\quad
+(A_3^{(d,1)},A_3^{(d,2)})=(c,C).
+\]
+for $k=1,2,3$, respectively.
+
+\subsection{Emission Model with an Unknown Sire}
+\label{emission}
+The emission distribution links the observed offspring genotype $y_{ik}$ to the hidden maternal
+state. We define
+\[
+b_k^{(i)}(j)=\Pr\!\big(y_{ik}\mid S_{ik}^{(d)}=j\big),
+\]
+the probability of observing $y_{ik}$ given that offspring $i$ inherited maternal homolog $j$
+at marker $k$. Conditional on $S_{ik}^{(d)}=j$, the maternally transmitted allele at locus $k$
+is the allele carried on that homolog, $A_k^{(d,j)}\in\{A,a\}$.
+
+Because the sire genotype is unobserved, we integrate it out. Let
+$\boldsymbol\pi_k=(\pi_{2,k},\pi_{1,k},\pi_{0,k})$ be the sire genotype probabilities at marker
+$k$ for $\{\mathrm{AA},\mathrm{Aa},\mathrm{aa}\}$ (nonnegative entries summing to one; how
+$\boldsymbol\pi_k$ is obtained is described later). The emission probability becomes the
+sire-averaged Mendelian probability:
+\begin{equation}
+b_k^{(i)}(j)=\sum_{g\in\{2,1,0\}} \pi_{g,k}\,\theta_{ik}(j,g),
+\qquad
+\theta_{ik}(j,g):=\Pr\!\big(Y_{ik}=y_{ik}\mid A_k^{(d,j)},g\big),
+\label{eq:emis-average}
+\end{equation}
+with the convention $b_k^{(i)}(j)=1$ if $y_{ik}=\varnothing$. The closed form of
+$\theta_{ik}(j,g)$ follows by defining the A-allele indicator
+\[
+m_k^{(d,j)}=
+\begin{cases}
+1,& A_k^{(d,j)}=A,\\
+0,& A_k^{(d,j)}=a,
+\end{cases}
+\]
+and the sire $A$-gamete probability
+\[
+p_g=
+\begin{cases}
+1,& g=2\ (\mathrm{AA}),\\[2pt]
+\tfrac12,& g=1\ (\mathrm{Aa}),\\[2pt]
+0,& g=0\ (\mathrm{aa}).
+\end{cases}
+\]
+Then
+\begin{equation}
+\theta_{ik}(j,g)=
+\begin{cases}
+p_g,      & y_{ik}-m_k^{(d,j)}=1,\\[4pt]
+1-p_g,    & y_{ik}-m_k^{(d,j)}=0,\\[4pt]
+0,        & \text{otherwise.}
+\end{cases}
+\label{eq:theta-cases}
+\end{equation}
+For example, if the dam transmits $A$ and the sire is $\mathrm{Aa}$ then
+$\Pr(\mathrm{AA})=\tfrac12$, $\Pr(\mathrm{Aa})=\tfrac12$, and $\Pr(\mathrm{aa})=0$.
+If the dam is homozygous at marker $k$, then $A_k^{(d,1)}=A_k^{(d,2)}$ and hence
+$b_k^{(i)}(1)=b_k^{(i)}(2)$, so such loci are uninformative about the transmitted homolog.
+
+\paragraph{Optional genotyping error:}
+With a per-marker miscall rate $e_k\in[0,1)$ and symmetric errors among the three genotypes, use
+\[
+Q(y\mid y')=
+\begin{cases}
+1-e_k,& y=y',\\[4pt]
+\dfrac{e_k}{2},& y\neq y',
+\end{cases}
+\qquad y,y'\in\{2,1,0\}.
+\]
+Then
+\begin{equation}
+b_k^{(i)}(j)
+= \sum_{g\in\{2,1,0\}} \pi_{g,k}
+   \Big[(1-e_k)\,\theta_{ik}(j,g)
+        + \tfrac{e_k}{2}\,\big(1-\theta_{ik}(j,g)\big)\Big].
+\label{eq:emission-error}
+\end{equation}
+A global $e$ may be used in place of a marker-specific $e_k$.
+
+\subsubsection{Source of the sire genotype probabilities $\mathbf{\pi_k}$ in practice}
+We model the paternal contribution at each marker \(k\) with a single-locus distribution
+\(\boldsymbol{\pi}_k\). Two interchangeable parameterizations are supported and are updated
+within the same Expectation-Maximization (EM) loop \citep{Dempster1977} that estimates
+\(\mathbf r\): (i) free per-marker genotype frequencies \(\boldsymbol{\pi}_k\) with optional
+Dirichlet shrinkage, and (ii) a Hardy--Weinberg parameterization via the allele-A frequency
+\(p_k\), i.e. \(\boldsymbol{\pi}_k=\left[ p_k^2,\,2p_k(1-p_k),\,(1-p_k)^2\right]\). Both allow
+\(\boldsymbol{\pi}_k\) (and hence \(p_k\)) to vary across markers. Full E- and M-step formulas
+and implementation details appear in Section~\ref{sec:par_cont}.
+
+\section{Likelihood Calculation and Parameter Estimation}
+\subsection{Parameter Estimation Strategy}
+\label{sec:param_estimation}
+\paragraph{Overview}
+We introduce an HMM for estimating recombination fractions \(\mathbf{r}\) along an ordered set of \(z\) markers, conditional on a known maternal linkage phase across the sequence. In principle one could search over all phase configurations and select the one that maximizes the multilocus likelihood. For \(z\) markers this requires evaluating \(2^{\,z-1}\) configurations, which is computationally infeasible even for modest \(z\).
+
+To avoid exhaustive search, we use a two-step strategy. First, we perform a pairwise analysis that identifies, for each dam and for each adjacent marker pair, the most likely phase state (coupling or repulsion). We present the HMM conditional on a fixed phase for a sequence of \(z\) markers, then specialize to the case \(z=2\) to obtain a two-marker formulation. This specialization yields a simplification in which the two-marker likelihood derived from the HMM can be written as a multinomial model on genotype-class counts, leading to fast estimation and a natural LOD score for coupling versus repulsion (see Supplementary Section~\ref{sec:tpt}).
+
+This step produces, for each dam, a complete matrix of pairwise phase calls and corresponding LOD scores. These are then supplied to the algorithm presented in Section~\ref{sec:global_phase_assembly} procedure, which resolves local conflicts and returns a single globally consistent phase configuration for each dam. The output is a fixed phase array.
+\[
+\bigl(\psi^{(d)}_1,\ldots,\psi^{(d)}_{z-1}\bigr),
+\]
+where \(\psi^{(d)}_k \in \{\mathrm{C},\mathrm{R}\}\) specifies the phase of the \(k\)-th adjacent interval for dam \(d\).
+
+With this plan in place, we now present the HMM under a fixed linkage phase and define its likelihood, followed by the two-marker specialization used for pairwise phase calling.
+
+
+\subsection{The Forward-Backward Algorithm}
+The full forward variable for offspring $i$ at marker $k$ is denoted $\alpha_k^{(i)}(j)$. 
+For readability, we suppress the offspring index $(i)$ and describe the algorithm for a single individual. In what follows, $\alpha_k(j)$ and $\beta_k(j)$ denote the scaled forward and backward variables (after applying the per-position factors $c_k$).
+
+
+\subsubsection{The Forward Pass (\texorpdfstring{$\alpha$}{alpha})}
+The forward variable, $\alpha_k(j)$, is the joint probability of observing the partial sequence of offspring genotypes up to marker $k$ \textit{and} being in hidden state $j$ at that marker \citep{Rabiner1989}. It accumulates evidence from the start of the sequence:
+\begin{equation}
+    \alpha_k(j) = \Pr(y_{i1},\ldots,y_{ik},\, S_{ik}=j).
+\end{equation}
+
+\begin{itemize}
+    \item \textbf{Initialization} ($k=1$): At the first marker, we assume an uninformative prior where each homolog has an equal chance of being transmitted ($1/2$):
+\begin{equation}
+    \alpha_1(j) = \frac{1}{2} b_1^{(i)}(j).
+\end{equation}
+Compute $c_1=\sum_{j=1}^2 \alpha_1(j)$ and rescale $\alpha_1(j)\leftarrow \alpha_1(j)/c_1$.
+\item \textbf{Recursion} ($k=2, \dots, z$): To compute $\alpha_k(j')$, we sum over all possible previous states $j$ at $k-1$, weight by the transition probability, and multiply by the emission probability at $k$:
+\begin{equation}
+    \alpha_k(j') = \left[ \sum_{j=1}^{2} \alpha_{k-1}(j) \, \mathbf{T}_{k-1}(j',j) \right] b_k^{(i)}(j').
+\end{equation}
+\noindent where \(\mathbf{T}_{k-1}(j',j)\) denotes the transition probability for interval
+\((k{-}1,k)\) as defined in Section~\ref{sec:transition}. After computing $\alpha_k(j')$, set $c_k=\sum_{j'=1}^2 \alpha_k(j')$ and rescale
+$\alpha_k(j')\leftarrow \alpha_k(j')/c_k$.
+Linkage phase is held fixed and enters through the emission probabilities \(b_k^{(i)}(j)\) via
+the allele labels \(A_k^{(d,j)}\) (Section~\ref{emission}).
+Rather than enumerating all \(2^{z-1}\) phase configurations (see Overview), we fix phase via the pairwise and global steps (Sections~\ref{sec:tpt}, \ref{sec:global_phase_assembly}). 
+\end{itemize}
+
+\subsubsection{The Backward Pass (\texorpdfstring{$\beta$}{beta})}
+The backward variable, $\beta_k(j)$, is the conditional probability of observing the sequence of offspring genotypes from marker $k+1$ to the end, \textit{given} that the hidden state at marker $k$ is $j$. It propagates evidence from the end of the sequence:
+\begin{equation}
+    \beta_k(j) = \Pr(y_{i,k+1},\ldots,y_{iz} \mid S_{ik}=j).
+\end{equation}
+
+\begin{itemize}
+    \item Initialization ($k=z$): At the last marker, the probability of the (empty) future observation sequence is 1:
+\begin{equation}
+    \beta_z(j) = 1.
+\end{equation}
+
+\item Recursion ($k=z-1, \dots, 1$):  To compute $\beta_k(j)$, we sum over all possible next states $j'$ at $k+1$, weighting by the transition, emission, and future probability:
+\begin{equation}
+    \beta_k(j)=\frac{1}{c_{k+1}}\sum_{j'=1}^{2} \mathbf{T}_k(j',j)\, b_{k+1}^{(i)}(j')\, \beta_{k+1}(j').
+\end{equation}
+\end{itemize}
+
+\subsubsection{Likelihood}
+The likelihood for offspring $i$ is then $\Pr(O^{(i)}) = \prod_{k=1}^z c_k$, and the log-likelihood can be computed as
+\begin{equation}
+    \log \mathcal{L}(\mathbf{r}, \boldsymbol{\psi} \mid O^{(i)}) = \sum_{k=1}^z \log(c_k).
+\end{equation}
+
+\subsubsection{Posterior Probabilities}
+The forward and backward variables are combined to compute posterior probabilities, used for the Expectation-Maximization (EM) algorithm.
+
+\paragraph{Single-Locus Posterior (\texorpdfstring{$\gamma$}{gamma}):} The probability of being in state $j$ at marker $k$, given all the observed data, is
+\begin{equation}
+\label{eq:gamma}
+    \gamma_k(j) = \Pr(S_{ik}=j \mid O^{(i)}) = \frac{\alpha_k(j)\beta_k(j)}{\sum_{\ell=1}^2 \alpha_k(\ell)\beta_k(\ell)}.
+\end{equation}
+
+\noindent where the denominator $\Pr(O^{(i)})$ is the likelihood of the data for offspring $i$, as calculated from the forward pass. Biologically, $\gamma_k(j)$ corresponds to the \textbf{haplotypic probability}, i.e., the probability of the offspring inheriting maternal haplotype $j$ at that locus given the multilocus model.
+
+\paragraph{Adjacent-Locus Posterior (\texorpdfstring{$\xi$}{xi}):} The joint posterior of transitioning from state $j$ at marker $k$ to state $j'$ at marker $k+1$ is
+\begin{equation}
+    \xi_k(j,j') = \Pr(S_{ik}=j, S_{i,k+1}=j' \mid O^{(i)}) =
+\frac{\alpha_k(j)\,\mathbf T_k(j',j)\,b_{k+1}^{(i)}(j')\,\beta_{k+1}(j')}{c_{k+1}}.
+\end{equation}
+Summing $\xi_k(j,j')$ over all individuals provides the expected counts of recombinant and non-recombinant events across interval $(k, k+1)$, which are then used to update the recombination fraction $r_k$ during the maximization step of the EM algorithm.
+
+\subsection{EM Algorithm for Recombination Estimation}
+
+With the linkage phases $(\boldsymbol{\psi}^{(1)}, \dots, \boldsymbol{\psi}^{(D)})$ for each dam held fixed, we estimate the shared recombination fractions $\mathbf{r}$ using the Expectation-Maximization (EM) algorithm. This iterative approach, known as the Baum-Welch algorithm in the context of HMMs, is well suited for problems with missing data. Here, the "missing data" are the true counts of recombination and non-recombination events for each offspring at each marker interval.
+
+\paragraph{The E-Step (Expectation):}
+The E-step uses the posterior probabilities $\xi_k^{(i)}(j,j')$ from the forward-backward algorithm to compute the expected counts of recombination ($N_{\text{rec},k}$) and non-recombination ($N_{\text{nonrec},k}$) events for each interval $k$. Biologically, these counts correspond to the expected number of crossover events within that interval across the entire sample. 
+These counts, summed over all $n$ offspring, depend on the posterior transition probabilities
+$\xi_k^{(i)}(j,j')$. Under our state definition ($S_{ik}$ is the transmitted maternal homolog),
+a recombination event in interval $(k,k{+}1)$ corresponds to a switch of homolog index
+($j\neq j'$), regardless of the dam's linkage phase labeling.
+
+\[
+    N_{\text{rec},k} = \sum_{i=1}^{n} \left( \xi_k^{(i)}(1,2) + \xi_k^{(i)}(2,1) \right),
+    \qquad
+    N_{\text{nonrec},k} = \sum_{i=1}^{n} \left( \xi_k^{(i)}(1,1) + \xi_k^{(i)}(2,2) \right).
+\]
+
+and 
+
+\[
+N_{\text{total},k}
+= \sum_{i=1}^{n}\sum_{j=1}^{2}\sum_{j'=1}^{2} \xi_k^{(i)}(j,j')
+= N_{\text{rec},k}+N_{\text{nonrec},k}.
+\]
+
+\paragraph{The M-Step (Maximization):}
+The M-step updates the recombination fractions by treating these expected counts as if they were observed data. The new estimate, $\hat{r}_k^{(t+1)}$, that maximizes the expected log-likelihood is the simple ratio:
+\begin{equation}
+    \hat{r}_k^{(t+1)} = \frac{N_{\text{rec},k}}{N_{\text{total},k}} = \frac{\text{Expected recombinations}}{\text{Total expected meioses}}.
+\end{equation}
+For numerical stability, we enforce the box constraint $r_k \in [\varepsilon, 0.5-\varepsilon]$ for a small $\varepsilon > 0$. The E- and M-steps are alternated until the log-likelihood of the data converges (i.e., the increase between iterations falls below a predefined tolerance). The final parameter vector $\hat{\mathbf{r}}$ is the maximum likelihood estimate. The final recombination fractions can be converted to map distances in centimorgans (cM) using a mapping function, such as Haldane's or Kosambi's.
+\paragraph{Paternal updates within the EM loop.}
+The emission probabilities in Eqs.~\eqref{eq:emis-average}–\eqref{eq:emission-error} depend on sire parameters denoted by $\Theta_{\text{sire}}$. Depending on the chosen parental model, each EM iteration proceeds as follows: (i) build $b_k^{(i)}(j)$ from the current $\Theta_{\text{sire}}$ (Model~1 via Eqs.~\eqref{eq:emis-average}–\eqref{eq:emission-error}; Model~2 by collapsing $\{\Pi_{s,k}\}$ to left/right single-locus marginals), (ii) run forward–backward to obtain $\gamma$ and $\xi$, (iii) update $\mathbf r$ from $\xi$, and (iv) update $\Theta_{\text{sire}}$: Model~1 by updating $\boldsymbol{\pi}_k$ (or $p_k$) from paternal responsibilities and expected counts weighted by $\gamma$; Model~2 by updating $\{\Pi_{s,k}\}$ from two-locus responsibilities that use $\xi$ and the two-locus Mendelian kernel, then rebuilding the per-marker marginals for the next iteration. Full formulas are provided in the Supplementary Section~\ref{sec:par_cont}
+
+\paragraph{Homogeneity of recombination across dams.}
+We treat the recombination map as shared across dams by default, reflecting its biological interpretation as a property of the chromosome. Empirically, female maps can differ across dams. To guard against bias when some dams contribute many offspring, we provide an optional heterogeneity check based on per-dam scalings of Haldane distances. Let $m_k=-\tfrac12\log(1-2r_k)$ be the Haldane distance for interval $k$. The scaled alternative sets $m_k^{(d)}=\eta^{(d)} m_k$, which implies
+\[
+r_k^{(d)}=\tfrac12\{1-\exp(-2\eta^{(d)} m_k)\}.
+\]
+We compare the shared model to this scaled alternative using a goodness-of-fit statistic or a likelihood-ratio test with null hypothesis $\eta^{(d)}=1$ for all dams (one dam can be fixed to $\eta^{(d)}=1$ for identifiability). In practice, $\eta^{(d)}$ can be profiled by a one-dimensional search per dam conditional on the current $\mathbf r$.
+
+
+\subsection{Global Phase Assembly}
+\label{sec:global_phase_assembly}
+
+Rather than embedding phase estimation within the HMM, which would introduce an additional latent layer and substantially complicate the EM updates, we estimate the full chromosomal phase externally in a single step. We map pairwise phase calls to signs (\(+1\) for coupling, \(-1\) for repulsion) and weight them by the corresponding LOD scores to build a symmetric, signed, LOD-weighted adjacency matrix \(J\) over markers. The optimal assignment of markers to the two maternal homologs is obtained by maximizing a LOD-weighted agreement criterion, equivalently \(\max_{x\in\{-1,+1\}^T} \sum_{i<j} J_{ij} x_i x_j\).
+
+We initialize \(x\) using the leading eigenvector of \(J\), following signed-graph spectral ideas \citep{Kunegis2010SpectralVisualization}, and fix orientation with an anchor. We then refine the solution using a greedy coordinate-ascent procedure that flips individual markers whenever this increases the objective. This yields a robust, dam-specific phase configuration \((\boldsymbol{\psi}^{(1)},\dots,\boldsymbol{\psi}^{(D)})\). A concise algorithmic description appears in Supplementary Section~\ref{sec:graph_phase}.
+
+
+\subsection{Implementation Details}
+
+\paragraph{GitHub repository:} \url{https://github.com/mmollina/HSMap}
+
+\paragraph{Initialization and Constraints:} We use an uninformative prior for the initial hidden states at the left boundary (uniform prior $\,\Pr(S_{i1}=1)=\Pr(S_{i1}=2)=\tfrac12$). Recombination fractions are initialized uniformly (e.g., $r_k=0.1$) and are constrained to the interval $[\varepsilon, 0.5-\varepsilon]$ during optimization for a small $\varepsilon > 0$. For the sire models, Model 1 is initialized with allele frequencies of $p_k=0.5$, while Model 2 is seeded with a uniform ten-class vector.
+
+\paragraph{Convergence and Decoding:} The EM algorithm is run until the relative increase in the total log-likelihood between iterations falls below a tolerance of $10^{-6}$, or until a maximum number of iterations is reached. After convergence, the final model parameters can be used to decode the maternal transmissions for each offspring. The Viterbi algorithm can be used to find the single most probable inheritance path, while the posterior probabilities ($\gamma_k(j)$) provide the probability of inheriting from each homolog at each locus. These decoded paths are valuable for downstream analyses, such as identifying specific crossover locations, error checking or quantitative trait loci (QTL) analysis.
+
+\paragraph{Computational Notes:} For $n$ offspring and $z$ markers, the forward-backward algorithm has a time complexity of $O(nz)$ and constant memory per individual. The computations are trivially parallelizable across offspring. To prevent numerical underflow, we use per-position scaling, where the individual log-likelihood is the sum of the logs of the scaling factors. Loci where the dam is homozygous are uninformative for phase but are retained in the model; for computational efficiency, long stretches of such markers can be collapsed without changing the likelihood.
+
+\paragraph{Averaging Emissions for Stability} In Model 2 (two-locus paternal mixture), the manuscript specifies that emissions at marker $k$ are obtained from the left collapse of interval $k$, and emissions at marker $k{+}1$ are obtained from the right collapse of interval $k$. This convention cleanly separates adjacent intervals. In software, however, one may instead average left and right collapses at interior markers, thereby incorporating information from both neighboring intervals into the emission probabilities. This averaging can improve stability in practice, particularly when paternal mixture proportions vary across intervals, though it slightly departs from the strict theoretical formulation.
+
+\section{Supplementary Material} \label{sec:sup_mat}
+\subsection{Paternal contribution models for the emission probability} \phantomsection \label{sec:par_cont}
+We account for the unknown paternal contribution with a single-locus model at each marker \(k\). The paternal genotype vector is \(\boldsymbol{\pi}_k=(\pi_{2,k},\pi_{1,k},\pi_{0,k})\). The updates for \(\boldsymbol{\pi}_k\) are embedded in the same Baum–Welch loop used to estimate \(\mathbf r\). Each outer iteration proceeds as follows: (i) build single-locus emissions \(b_k^{(i)}(j)\) from current \(\boldsymbol{\pi}_k\) using Eqs.~\eqref{eq:emis-average}–\eqref{eq:emission-error}; (ii) run forward–backward to obtain \(\gamma\) and \(\xi\); (iii) update \(\mathbf r\) from \(\xi\); and (iv) update \(\boldsymbol{\pi}_k\) from posterior responsibilities at each marker.
+
+\paragraph{E-step responsibilities at a single locus.}
+For offspring \(i\), marker \(k\), and maternal state \(j\in\{1,2\}\), define paternal-genotype responsibilities
+\[
+R^{(i)}_{g,k}(j)=
+\frac{\pi_{g,k}\,\theta_{ik}(j,g)}{\sum_{g'\in\{AA,Aa,aa\}} \pi_{g',k}\,\theta_{ik}(j,g')},
+\qquad g\in\{AA,Aa,aa\},
+\]
+where \(\theta_{ik}(j,g)=\Pr\!\big(Y_{ik}=y_{ik}\mid A_k^{(d,j)},g\big)\) is the Mendelian term from Eq.~\eqref{eq:emis-average}. If \(y_{ik}=\varnothing\) set \(R^{(i)}_{g,k}(j)=\pi_{g,k}\). Expected paternal genotype counts at marker \(k\) are
+\[
+N_{g,k}=\sum_{i=1}^{n}\sum_{j\in\{1,2\}} \gamma_k^{(i)}(j)\,R^{(i)}_{g,k}(j),
+\qquad g\in\{AA,Aa,aa\}.
+\]
+
+\paragraph{Parameterization A: free per-marker genotype frequencies.}
+Update \(\boldsymbol{\pi}_k\) directly with optional Dirichlet shrinkage \(\lambda\ge 0\) toward a prior \(\boldsymbol{\pi}^{(0)}_k\):
+\[
+\hat{\pi}_{g,k}=\frac{N_{g,k}+\lambda\,\pi^{(0)}_{g,k}}{\sum_{g'} N_{g',k}+\lambda},
+\qquad g\in\{AA,Aa,aa\}.
+\]
+This choice allows \(\boldsymbol{\pi}_k\) to vary freely by marker and captures local shifts in paternal composition.
+
+\paragraph{Parameterization B: Hardy–Weinberg equilibrium at each marker.}
+Represent \(\boldsymbol{\pi}_k\) through the paternal allele-A frequency \(p_k\) via
+\[
+\boldsymbol{\pi}_k=\left[ p_k^2,\,2p_k(1-p_k),\,(1-p_k)^2\right].
+\]
+Let \(\widehat p_k=(2N_{AA,k}+N_{Aa,k})\big/\bigl(2\sum_g N_{g,k}\bigr)\) be the empirical allele frequency. With shrinkage toward \(p_k^{(0)}=\pi^{(0)}_{AA,k}+\tfrac12\pi^{(0)}_{Aa,k}\),
+\[
+p_k^{\text{new}}=\frac{\widehat p_k\,\sum_g N_{g,k}+\lambda\,p_k^{(0)}}{\sum_g N_{g,k}+\lambda},
+\quad \text{then set}\quad
+\pi_{2,k}=p_k^{\text{new}\,2},\ \pi_{1,k}=2p_k^{\text{new}}(1-p_k^{\text{new}}),\ \pi_{0,k}=(1-p_k^{\text{new}})^2.
+\]
+
+\paragraph{Practical notes.}
+(i) Initialization: when no prior is supplied, use \(\boldsymbol{\pi}^{(0)}_k=(1/3,1/3,1/3)\).  
+(ii) Missing data: if all calls at marker \(k\) are missing, the update reverts to the prior.  
+(iii) Numerical stability: clip \(p_k^{\text{new}}\) to \([10^{-9},1-10^{-9}]\) and enforce \(\sum_g \pi_{g,k}=1\).  
+(iv) Either parameterization is compatible with the same HMM, and both permit \(p_k\) to fluctuate along the chromosome without introducing a two-locus kernel.
+
+\subsection{Two-Point Analysis for Pairwise Phase and Recombination Estimation}
+\label{sec:tpt}
+To initialize the multilocus HMM, we fit a two-marker model for each adjacent pair $(k,k')$ that compares the two maternal phase hypotheses and estimates a pairwise recombination fraction. We consider only dams that are double heterozygotes at these markers \(\bigl(G_k^{(d)}=G_{k'}^{(d)}=1\bigr)\). For each such dam $d$, we count the number of offspring, $C_d(a,b)$, for each two-locus genotype $(y_{ik},y_{i,k'})=(a,b)\in\{0,1,2\}^2$ (offspring with a missing call at one of the loci are accommodated by summing over the missing genotype; if both are missing there is no contribution).
+
+\paragraph{Two-marker offspring genotype distribution under phase and $r_{kk'}$.}
+The probability of an offspring's two-locus genotype, $(Y_k,Y_{k'})=(y_k,y_{k'})$, depends on the maternal phase, the recombination fraction $r_{kk'}$, and the sire population allele frequencies $(p_k,p_{k'})$. We build this probability in three steps.
+
+\subsubsection{Step 1: Paternal contribution at a single locus}
+Let $p_k$ be the frequency of allele $A$ in the sire population at marker $k$.
+Define the row vectors, listed in the order $(Y=2,\,Y=1,\,Y=0)$,
+\[
+F_k^{(A)} := (\,p_k,\,1-p_k,\,0\,), \qquad
+F_k^{(a)} := (\,0,\,p_k,\,1-p_k\,).
+\]
+Let $F_k^{(m)}(y)$ denote the component of $F_k^{(m)}$ corresponding to genotype $Y=y$,
+under the ordering $(y=2,\,1,\,0)$.
+At marker $k{+}1$ we use alleles $B/b$ and define analogously
+\[
+F_{k'}^{(B)} := (\,p_{k'},\,1-p_{k'},\,0\,), \qquad
+F_{k'}^{(b)} := (\,0,\,p_{k'},\,1-p_{k'}\,).
+\]
+
+\subsubsection{Step 2: Maternal gamete frequencies}
+For a doubly heterozygous dam, gamete frequencies depend on phase and $r_{kk'}$.
+In \emph{coupling} (haplotypes $AB$ and $ab$):
+\[
+\text{nonrecombinants } AB,ab:\ \tfrac{1-r_{kk'}}{2}\ \text{each}, \qquad
+\text{recombinants } Ab,aB:\ \tfrac{r_{kk'}}{2}\ \text{each}.
+\]
+In \emph{repulsion} (haplotypes $Ab$ and $aB$), the nonrecombinants are $Ab,aB$ and the recombinants are $AB,ab$ with the same weights.
+
+\subsubsection{Step 3: Combined two-locus probability}
+Summing over the four maternal gametes gives, for coupling,
+\[
+\begin{aligned}
+P^{(C)}_{y_k,y_{k'}}(r_{kk'};p_k,p_{k'})
+=\;&\frac{1-r_{kk'}}{2}\Big[\,F_k^{(A)}(y_k)\,F_{k'}^{(B)}(y_{k'})
+      + F_k^{(a)}(y_k)\,F_{k'}^{(b)}(y_{k'})\Big] \\
+&+\frac{r_{kk'}}{2}\Big[\,F_k^{(A)}(y_k)\,F_{k'}^{(b)}(y_{k'})
+      + F_k^{(a)}(y_k)\,F_{k'}^{(B)}(y_{k'})\Big].
+\end{aligned}
+\]
+The expression for repulsion is obtained by swapping the nonrecombinant and recombinant pairings. At $r_{kk'}=0.5$ the two phases are indistinguishable.
+
+\paragraph{Estimation and phase calls (per dam, pooled $r_{kk'}$).}
+We first obtain method-of-moments estimates for the sire allele frequencies, $\hat p_k$ and $\hat p_{k'}$, from the marginal offspring genotype counts (pooled over the dams included at this pair). The log-likelihood for dam $d$ is
+\[
+\ell_d(r_{kk'},\phi) \;=\; \sum_{a=0}^{2}\sum_{b=0}^{2} C_d(a,b)\,\log P^{(\phi)}_{ab}(r_{kk'};\hat p_k,\hat p_{k'}).
+\]
+Crucially, phase is decided \emph{within each maternal family}. We treat phase as a dam-specific nuisance parameter and profile it out while estimating a single recombination fraction shared across dams:
+\[
+\hat r_{kk'} \;=\; \arg\max_{\,r\in[0,0.5]}\ \sum_{d}\ \max_{\phi\in\{C,R\}}\ \ell_d(r,\phi).
+\]
+The maximization is one dimensional and inexpensive. Given $\hat r_{kk'}$, the final phase call for dam $d$ is
+\[
+\hat\phi_d \;=\; \arg\max_{\phi\in\{C,R\}} \ell_d(\hat r_{kk'},\phi),
+\]
+and its statistical support is summarized by a LOD score, for example,
+\[
+\mathrm{LOD}_d \;=\; \frac{\ell_d(\hat r_{kk'},\hat\phi_d)-\ell_d(\hat r_{kk'},\phi_{\mathrm{alt}})}{\ln 10}.
+\]
+This per-dam decision avoids any exponential search over phases across dams and keeps computation linear in the number of families.
+
+\subsection{Graph-based maternal phasing from pairwise evidence} \label{sec:graph_phase}
+
+\noindent\textbf{Inputs.}
+For a given dam, let \(A\in\{0,1,\text{NA}\}^{z\times z}\) be the pairwise maternal phase matrix
+(\(1=\) coupling, \(0=\) repulsion, NA uninformative), \(W\in\mathbb{R}_{\ge 0}^{z\times z}\) the LOD matrix,
+and \(\mathcal{O}=(M_1,\ldots,M_z)\) the marker order. Choose an anchor index \(a\) and label \(\ell\in\{0,1\}\)
+to fix the global orientation.
+
+\medskip
+\noindent\textbf{Graph construction.}
+Map \(A\) to signs \(S\) with \(S_{ij}=+1\) if \(A_{ij}=1\), \(S_{ij}=-1\) if \(A_{ij}=0\), and \(S_{ij}=0\) if \(A_{ij}=\text{NA}\).
+Symmetrize \(S\) and \(W\), set diagonals to zero, and form the signed, weighted adjacency
+\[
+  J \;=\; \tfrac{1}{2}\bigl(S \odot W + (S \odot W)^{\!\top}\bigr).
+\]
+If \(J\equiv 0\), return a trivial constant phase.
+
+\medskip
+\noindent\textbf{Spectral start.}
+Compute the leading eigenvector \(v_1\) of \(J\).
+Set \(x_i=\operatorname{sign}(v_{1,i})\) (zeros map to \(+1\)).
+Flip all signs of \(x\) if needed so that the anchor \(x_a\) matches label \(\ell\).
+
+\medskip
+\noindent\textbf{Greedy refinement.}
+Iterate for a small number of passes:
+compute \(g=Jx\); visit markers in random order; for marker \(i\) compute
+\(\Delta_i=-2\,x_i\,g_i\); if \(\Delta_i>0\) flip \(x_i\) and update \(g\leftarrow g-2x_i^{\text{old}}J_{:,i}\).
+Stop when the best improvement is at most \texttt{tol} or when \texttt{max\_passes} is reached.
+
+\medskip
+\noindent\textbf{Output.}
+Report clusters \(c_i=\mathbb{I}[x_i=-1]\in\{0,1\}\).
+The adjacent phase along \(\mathcal{O}\) is
+\[
+  \text{phase}[k] \;=\; \mathbb{I}\!\bigl[c_k=c_{k+1}\bigr],
+  \quad k=1,\ldots,z-1
+\]
+with \(1=\) coupling and \(0=\) repulsion.
+Also report the objective \(\sum_{i<j} J_{ij}x_i x_j\) and a LOD-weighted agreement score with the pairwise calls.
+
+\medskip
+\noindent\textbf{Multi-dam case.}
+Apply the same procedure independently to each dam and return a named list.
+
+\bibliography{references}
+
+\end{document}

@@ -1,0 +1,43 @@
+Package: HSMap
+Type: Package
+Title: Map construction in half-sib populations
+Version: 0.0.0.9000
+Authors@R: c(
+    person(
+      "Marcelo", "Mollinari",
+      email = "mmollina@gmail.com",
+      role = c("aut", "cre")
+    )
+  )
+Description: A fast C++ (Rcpp) implementation that uses a two-state Hidden 
+             Markov Model to estimate recombination rates between genetic 
+             markers from offspring genotypes in outcrossing diploid species. 
+             It handles known mothers, optional known sires,   multiple 
+             populations (families), and scattered missing markers.
+License: MIT + file LICENSE
+LazyData: TRUE
+LazyDataCompression: xz
+Depends:
+    R (>= 4.2.0)
+Imports:
+    Rcpp (>= 1.0.0),
+    RcppParallel,
+    dplyr,
+    ggplot2,
+    tidyr,
+    tidyselect,
+    fields, 
+    dendextend,
+    princurve,
+    smacof,
+    cli,
+    crayon
+LinkingTo: Rcpp, RcppProgress, RcppParallel
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+SystemRequirements: GNU make
+Suggests:
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr
