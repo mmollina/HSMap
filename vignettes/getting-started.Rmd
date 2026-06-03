@@ -1,0 +1,166 @@
+---
+title: "Getting started with HSMap"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with HSMap}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 6, fig.height = 3.2)
+```
+
+## Overview
+
+HSMap infers maternal recombination and linkage phase in **open-pollinated diploid
+half-sib families**: one or more known dams, many offspring, and **unknown sires**.
+Transmission along an ordered marker set is modelled with a maternal-only hidden
+Markov model (HMM). The hidden state is the maternal homolog transmitted to an
+offspring, transitions encode recombination between adjacent markers, and the
+unknown paternal contribution is integrated out of the emissions. When several dams
+are analysed together, HSMap estimates a **single shared recombination map** by a
+joint EM, while keeping phase and the paternal model dam-specific.
+
+This vignette walks through the workflow on simulated data:
+
+1. simulate a family,
+2. two-point (pairwise) analysis,
+3. phasing,
+4. the multipoint HMM map,
+5. the joint multi-dam map,
+6. per-offspring haplotype probabilities.
+
+```{r}
+library(HSMap)
+RcppParallel::setThreadOptions(numThreads = 2)
+set.seed(2024)
+```
+
+## 1. Simulate a single family
+
+`sim_multi_pop()` simulates families that share one recombination map, with
+dam-specific phase and (here) unknown sires drawn under Hardy–Weinberg.
+
+```{r}
+Tm <- 40
+r_true <- rep(0.04, Tm - 1)                       # ~4 cM (Haldane) per interval
+sim1 <- sim_multi_pop(
+  T_markers = Tm, n_pops = 1, n_ind_per_pop = 200,
+  r_vec = r_true,
+  phase_mode = "random", repulsion_rate = 0.3,    # mix of coupling/repulsion
+  maternal_geno_mode = "all_het",                 # every marker informative
+  paternal_pA_base = 0.4,                          # unknown-sire allele frequency
+  error_rate = 0.01, seed = 2024
+)
+```
+
+Real data is loaded with `read_HSMap_data(pedigree.csv, genotypes.csv)`. An
+`HSMap.data` object is simply a list of per-family offspring genotype matrices
+(`G_list`, coded `0/1/2/NA`) and maternal genotype vectors (`M_list`); for the
+tutorial we wrap the simulated genotypes directly:
+
+```{r}
+dat1 <- structure(list(G_list = sim1$G_list, M_list = sim1$M_list),
+                  class = "HSMap.data")
+markers <- sim1$truth$markers_union
+```
+
+## 2. Two-point analysis
+
+`pairwise_rf()` estimates a recombination fraction and a phase LOD for every marker
+pair, pooling information across families and integrating out the sires.
+
+```{r}
+tpt <- pairwise_rf(dat1, threads = 2)
+round(tpt$fit$r[1:5, 1:5], 3)
+```
+
+For *de novo* analyses you would cluster markers into linkage groups with
+`group_markers()` and order each group with `mds_order()`. Here the simulated
+markers are already in order, so we use that order directly.
+
+## 3. Phasing
+
+`phase_from_pairwise()` turns the pairwise phase calls into one ordered
+coupling/repulsion configuration per dam, via a signed-graph optimisation.
+
+```{r}
+ph1 <- phase_from_pairwise(tpt, order = markers)
+head(ph1$phase_vec)        # 1 = coupling, 0 = repulsion, per interval
+```
+
+## 4. Multipoint HMM map
+
+With phase held fixed, `hmm_map()` fits the maternal HMM by EM. The genotyping
+error rate `epsilon` is fixed at the assay's expected value (here 1%).
+
+```{r}
+map1 <- hmm_map(dat1, phased = ph1, dam = 1, epsilon = 0.01)
+sum(inv_haldane(map1$fit$r))   # total map length in cM (Haldane)
+```
+
+```{r, fig.alt = "Linkage map of the single family as a track of marker positions in centiMorgans."}
+plot_map_list(map1, map.function = "haldane")
+```
+
+## 5. Joint multi-dam map
+
+Now three dams that share one map but have independent phase and unknown,
+heterogeneous sires. With `maternal_geno_mode = "HWE"` the dams are heterozygous at
+*different* subsets of markers — exactly the case where pooling across families
+helps.
+
+```{r}
+sim3 <- sim_multi_pop(
+  T_markers = Tm, n_pops = 3, n_ind_per_pop = c(120, 100, 80),
+  r_vec = r_true,
+  phase_mode = "random", repulsion_rate = 0.3,
+  maternal_geno_mode = "HWE", maternal_pA = 0.5,
+  paternal_pA_base = 0.4, paternal_pA_sd = 0.05,
+  error_rate = 0.01, seed = 99
+)
+dat3 <- structure(list(G_list = sim3$G_list, M_list = sim3$M_list),
+                  class = "HSMap.data")
+mk3 <- sim3$truth$markers_union
+
+tpt3 <- pairwise_rf(dat3, threads = 2)
+ph3  <- phase_from_pairwise(tpt3, order = mk3, dam = "all")   # one entry per dam
+```
+
+`hmm_map(dam = "all")` estimates the **shared** map by the joint EM (the default
+`method = "joint"`), pooling expected recombination counts across dams:
+
+```{r}
+joint <- hmm_map(dat3, phased = ph3, dam = "all")
+length(joint$fit$r)               # one shared recombination vector
+sum(inv_haldane(joint$fit$r))     # total map length in cM
+```
+
+```{r, fig.alt = "Shared linkage map estimated jointly from three dams."}
+plot_map_list(joint, map.function = "haldane")
+```
+
+The joint estimator is the likelihood-based map implied by the model, so it is
+compatible with likelihood-based inference. A legacy per-dam-then-average estimator
+is available for comparison via `method = "consensus"`.
+
+## 6. Per-offspring haplotype probabilities
+
+`calc_haploprob()` returns, for each offspring and marker, the posterior probability
+of having inherited each maternal homolog. It accepts the joint map and decodes
+every dam:
+
+```{r}
+gp <- calc_haploprob(dat3, joint)   # named list, one HSMap.gamma per dam
+dim(gp[["P1"]]$gamma)               # [2 homologs, markers, offspring]
+```
+
+These posteriors are the inputs for downstream analyses such as QTL mapping or
+crossover counting.
+
+## Session info
+
+```{r}
+sessionInfo()
+```
