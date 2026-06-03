@@ -33,3 +33,4 @@ dev/validation/results/
 # Vignette / pkgdown build output
 inst/doc/
 docs/
+.positai
