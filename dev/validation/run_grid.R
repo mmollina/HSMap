@@ -23,7 +23,7 @@ dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
 ## independent across scenarios but reproducible.
 baseline <- list(name = "baseline", Tm = 80L, n_ind = 300L, r_lo = 0.01, r_hi = 0.15,
                  rep_rate = 0.25, pA = 0.40, err = 0.01, eps = 0.01,
-                 pat = "per_marker", base_seed = 1000L)
+                 pat = "gametic", base_seed = 1000L)
 
 mk <- function(name, base_seed, ...) modifyList(baseline, c(list(name = name, base_seed = base_seed), list(...)))
 

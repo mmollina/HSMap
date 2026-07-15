@@ -12,7 +12,7 @@ hmm_map_joint(
   epsilon = 0.01,
   tol = 1e-04,
   pi_mode = c("per_marker", "HWE"),
-  paternal_mode = c("per_marker", "HWE", "two_locus"),
+  paternal_mode = c("gametic", "HWE", "per_marker", "two_locus"),
   r_start = 0.05,
   lambda = 20,
   maxit = 200,
@@ -36,9 +36,16 @@ current setting unchanged.}
 
 \item{tol}{EM convergence tolerance (on log-likelihood and \code{r}). Default \code{1e-4}.}
 
-\item{pi_mode, paternal_mode}{Paternal model. \code{paternal_mode} one of
-\code{c("per_marker","HWE","two_locus")}; \code{pi_mode} one of
-\code{c("per_marker","HWE")} (ignored for \code{two_locus}).}
+\item{pi_mode}{Retained for backward compatibility only and ignored by the
+identifiable paternal model.}
+
+\item{paternal_mode}{Paternal model, one of
+\code{c("gametic","HWE","per_marker","two_locus")}, default \code{"gametic"}.
+\code{"gametic"} (and its identical alias \code{"HWE"}) parameterizes the
+paternal contribution by the single identifiable per-marker, per-dam sire
+gametic allele frequency \eqn{q_k = \pi_{AA} + \tfrac12\pi_{Aa}}, returned in
+\code{fit$q_list}. \code{"per_marker"} and \code{"two_locus"} are
+non-identifiable and disabled at the public API. See \code{\link{hmm_map}}.}
 
 \item{r_start}{Initial recombination fraction for all intervals. Default \code{0.05}.}
 
@@ -53,8 +60,11 @@ current setting unchanged.}
 An object of class \code{c("HSMap.map.joint","HSMap.map")} with
 \code{order} (shared), \code{dams}, \code{phase_list} (per dam),
 \code{fit} (the C++ result: shared \code{r}, per-dam \code{pi_list}, etc.) and
-a top-level \code{r}. Because it carries \code{fit$r} and \code{order}, it
-works directly with \code{\link[=get_map]{get_map()}} and \code{\link[=plot_map_list]{plot_map_list()}}.
+a top-level \code{r}. The \code{fit} carries \code{fit$q_list}, the canonical
+per-dam sire gametic allele frequencies \eqn{q_k}; \code{fit$pi_list} is
+retained only as the derived HWE-form emission table and is \emph{not} an
+estimate of paternal genotype frequencies. Because it carries \code{fit$r}
+and \code{order}, it works directly with \code{\link[=get_map]{get_map()}} and \code{\link[=plot_map_list]{plot_map_list()}}.
 }
 \description{
 Estimate a \strong{single recombination map} shared across several dams by maximum

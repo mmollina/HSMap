@@ -12,7 +12,7 @@ hmm_map(
   epsilon = 0.01,
   tol = 1e-04,
   pi_mode = c("per_marker", "HWE"),
-  paternal_mode = c("per_marker", "HWE", "two_locus"),
+  paternal_mode = c("gametic", "HWE", "per_marker", "two_locus"),
   r_start = 0.05,
   lambda = 20,
   maxit = 200,
@@ -46,12 +46,29 @@ Default \code{0.01}.}
 
 \item{tol}{Convergence tolerance for EM. Default \code{1e-4}.}
 
-\item{pi_mode}{Emission parameterization for the paternal mixture when
-\code{paternal_mode != "two_locus"}. One of \code{c("per_marker","HWE")}.
-Default \code{"per_marker"}.}
+\item{pi_mode}{Retained for backward compatibility only and \strong{ignored} by the
+identifiable paternal model (the paternal contribution is a single per-marker
+allele frequency; see \code{paternal_mode}).}
 
 \item{paternal_mode}{Paternal model for the HMM. One of
-\code{c("per_marker","HWE","two_locus")}. Default \code{"per_marker"}.}
+\code{c("gametic","HWE","per_marker","two_locus")}, default \code{"gametic"}.
+\describe{
+\item{\code{"gametic"}}{The identifiable model. The paternal contribution
+is a single per-marker (and per-dam) sire gametic allele frequency
+\eqn{q_k = \Pr(\text{paternal gamete transmits } A) = \pi_{AA}+\tfrac12\pi_{Aa}},
+the only paternal quantity the half-sib offspring likelihood identifies.
+Returned in \code{fit$q}.}
+\item{\code{"HWE"}}{Accepted compatibility alias for \code{"gametic"}:
+mathematically identical (under Hardy--Weinberg the allele frequency
+\eqn{p_k \equiv q_k}), so it yields byte-identical results. It is
+\emph{not} a separately identifiable biological model.}
+\item{\code{"per_marker"}}{Disabled (informative error). The three free
+paternal genotype frequencies are not identifiable (only \eqn{q_k} is);
+the legacy engine remains reachable via the internal
+\code{hmm_hs_cpp_parallel()} for historical reproduction.}
+\item{\code{"two_locus"}}{Disabled (informative error). The 10-class
+two-locus mixture does not identify paternal linkage disequilibrium.}
+}}
 
 \item{r_start}{Initial recombination fraction for all intervals.
 Default \code{0.05}.}
@@ -61,8 +78,10 @@ Default \code{20}.}
 
 \item{maxit}{Maximum EM iterations. Default \code{200}.}
 
-\item{pi_prior_in}{Optional 3 x T prior for paternal genotype frequencies
-when \code{paternal_mode != "two_locus"}.}
+\item{pi_prior_in}{Optional 3 x T paternal prior. Only its implied gametic
+allele frequency \eqn{q^{(0)}_k = \pi^{(0)}_{AA} + \tfrac12\pi^{(0)}_{Aa}} is
+used (the genotype split is not identifiable). A dedicated \code{q_prior_in}
+argument is planned as the next API cleanup.}
 
 \item{Pi_prior_in}{Optional 10 x (T-1) prior for interval classes when
 \code{paternal_mode == "two_locus"}.}
@@ -83,7 +102,11 @@ If \code{TRUE} and multiple dams are requested, also compute a consensus
 \value{
 If a single dam is requested, an object of class \code{"HSMap.map"} with
 \code{order}, \code{phase_vec}, \code{fit} (the C++ HMM result) and
-\code{dam}. If multiple dams are requested with \code{method = "joint"}
+\code{dam}. The \code{fit} carries \code{fit$q} (the canonical per-marker sire
+gametic allele frequency \eqn{q_k}); \code{fit$pi} is retained only as the
+derived HWE-form emission table used by downstream decoders and is \emph{not}
+an estimate of paternal genotype frequencies. If multiple dams are requested
+with \code{method = "joint"}
 (default), a single shared map of class \code{c("HSMap.map.joint","HSMap.map")}
 (see \code{\link{hmm_map_joint}}), directly usable by \code{\link{get_map}} and
 \code{\link{plot_map_list}}. With \code{method = "consensus"}, a named list of
