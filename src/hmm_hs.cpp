@@ -279,28 +279,54 @@ struct EStepWorker : public Worker {
       }
     }
 
-    // paternal responsibilities per marker (Model A modes)
+    // paternal responsibilities per marker (Model A modes).
+    // R_g = P(paternal genotype g | Y) = sum_h gamma(h) * pi_g P(y|h,g) / b(h),
+    // where b(h) = sum_g pi_g P(y|h,g) is the emission for maternal state h. The
+    // per-state b(h) normalizes INSIDE the sum over h; using the gamma-averaged
+    // emission as the denominator biases the q update (the EM then need not
+    // ascend the observed-data likelihood). A state h contributes only when its
+    // posterior weight ga(h) > 0 AND its emission b(h) > 0, so an impossible
+    // state (b(h) = 0 at epsilon = 0) is skipped rather than dividing by zero or
+    // by an arbitrary floor.
     if (paternal_mode != "two_locus") {
       for (int t=0; t<T; ++t) {
-        double g0 = alpha[2*t+0]*beta[2*t+0];
-        double g1 = alpha[2*t+1]*beta[2*t+1];
-        double z = g0 + g1;
-        if (z <= 0.0) z = 1e-15;
-        const double ga0 = g0 / z;
-        const double ga1 = g1 / z;
+        const double gg0 = alpha[2*t+0]*beta[2*t+0];
+        const double gg1 = alpha[2*t+1]*beta[2*t+1];
+        const double z = gg0 + gg1;
+        if (z <= 0.0) continue;                 // no maternal-state info here
+        const double ga0 = gg0 / z;
+        const double ga1 = gg1 / z;
 
         const int y  = G(i,t);
         if (y == NA_INTEGER) continue;
         const int Mt = M[t];
 
-        double w0 = pi_emis(0,t) * (ga0*py_hgM_obs(y,0,1,Mt,epsilon) + ga1*py_hgM_obs(y,1,1,Mt,epsilon)) + 1e-15;
-        double w1 = pi_emis(1,t) * (ga0*py_hgM_obs(y,0,2,Mt,epsilon) + ga1*py_hgM_obs(y,1,2,Mt,epsilon)) + 1e-15;
-        double w2 = pi_emis(2,t) * (ga0*py_hgM_obs(y,0,3,Mt,epsilon) + ga1*py_hgM_obs(y,1,3,Mt,epsilon)) + 1e-15;
-        const double s = std::max(w0 + w1 + w2, 1e-15);
-
-        Ng0[t] += w0 / s;
-        Ng1[t] += w1 / s;
-        Ng2[t] += w2 / s;
+        double c0 = 0.0, c1 = 0.0, c2 = 0.0;    // contributions to Ng{AA,Aa,aa}
+        if (ga0 > 0.0) {
+          const double pAA = py_hgM_obs(y,0,1,Mt,epsilon);
+          const double pAa = py_hgM_obs(y,0,2,Mt,epsilon);
+          const double paa = py_hgM_obs(y,0,3,Mt,epsilon);
+          const double b0 = pi_emis(0,t)*pAA + pi_emis(1,t)*pAa + pi_emis(2,t)*paa;
+          if (b0 > 0.0) {
+            c0 += ga0 * pi_emis(0,t) * pAA / b0;
+            c1 += ga0 * pi_emis(1,t) * pAa / b0;
+            c2 += ga0 * pi_emis(2,t) * paa / b0;
+          }
+        }
+        if (ga1 > 0.0) {
+          const double pAA = py_hgM_obs(y,1,1,Mt,epsilon);
+          const double pAa = py_hgM_obs(y,1,2,Mt,epsilon);
+          const double paa = py_hgM_obs(y,1,3,Mt,epsilon);
+          const double b1 = pi_emis(0,t)*pAA + pi_emis(1,t)*pAa + pi_emis(2,t)*paa;
+          if (b1 > 0.0) {
+            c0 += ga1 * pi_emis(0,t) * pAA / b1;
+            c1 += ga1 * pi_emis(1,t) * pAa / b1;
+            c2 += ga1 * pi_emis(2,t) * paa / b1;
+          }
+        }
+        Ng0[t] += c0;
+        Ng1[t] += c1;
+        Ng2[t] += c2;
       }
     }
 
@@ -351,7 +377,8 @@ Rcpp::List hmm_hs_cpp_parallel(Rcpp::IntegerMatrix G,           // n x T
                                double tol = 1e-6,
                                int    maxit = 200,
                                std::string paternal_mode = "per_marker", // "per_marker" | "HWE" | "two_locus"
-                               Rcpp::Nullable<Rcpp::NumericMatrix> Pi_prior_in = R_NilValue) // 10 x (T-1)
+                               Rcpp::Nullable<Rcpp::NumericMatrix> Pi_prior_in = R_NilValue, // 10 x (T-1)
+                               Rcpp::Nullable<Rcpp::NumericVector> r_init = R_NilValue) // optional T-1 warm start for r
 {
   const int n = G.nrow();
   const int T = G.ncol();
@@ -364,9 +391,15 @@ Rcpp::List hmm_hs_cpp_parallel(Rcpp::IntegerMatrix G,           // n x T
   if (!(paternal_mode == "per_marker" || paternal_mode == "HWE" || paternal_mode == "two_locus"))
     stop("paternal_mode must be 'per_marker', 'HWE', or 'two_locus'");
 
-  // initialize r in [1e-6, 0.5]
+  // initialize r in [1e-6, 0.5]. A per-interval `r_init` (optional) overrides the
+  // scalar r_start; used to warm-start the EM at an existing solution (diagnostic).
   NumericVector r(T-1, r_start);
   for (int t=0; t<T-1; ++t) r[t] = std::min(0.5, std::max(1e-6, r_start));
+  if (r_init.isNotNull()) {
+    NumericVector ri(r_init.get());
+    if (ri.size() != T-1) stop("r_init must have length T-1");
+    for (int t=0; t<T-1; ++t) r[t] = std::min(0.5, std::max(1e-6, ri[t]));
+  }
 
   // Model A priors per marker
   NumericMatrix pi_prior(3, T);

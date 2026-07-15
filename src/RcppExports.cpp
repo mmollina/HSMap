@@ -11,8 +11,8 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
 // hmm_hs_cpp_parallel
-Rcpp::List hmm_hs_cpp_parallel(Rcpp::IntegerMatrix G, Rcpp::IntegerVector M, Rcpp::IntegerVector phase_vec, double r_start, std::string pi_mode, Rcpp::Nullable<Rcpp::NumericMatrix> pi_prior_in, double lambda, double epsilon, double tol, int maxit, std::string paternal_mode, Rcpp::Nullable<Rcpp::NumericMatrix> Pi_prior_in);
-RcppExport SEXP _HSMap_hmm_hs_cpp_parallel(SEXP GSEXP, SEXP MSEXP, SEXP phase_vecSEXP, SEXP r_startSEXP, SEXP pi_modeSEXP, SEXP pi_prior_inSEXP, SEXP lambdaSEXP, SEXP epsilonSEXP, SEXP tolSEXP, SEXP maxitSEXP, SEXP paternal_modeSEXP, SEXP Pi_prior_inSEXP) {
+Rcpp::List hmm_hs_cpp_parallel(Rcpp::IntegerMatrix G, Rcpp::IntegerVector M, Rcpp::IntegerVector phase_vec, double r_start, std::string pi_mode, Rcpp::Nullable<Rcpp::NumericMatrix> pi_prior_in, double lambda, double epsilon, double tol, int maxit, std::string paternal_mode, Rcpp::Nullable<Rcpp::NumericMatrix> Pi_prior_in, Rcpp::Nullable<Rcpp::NumericVector> r_init);
+RcppExport SEXP _HSMap_hmm_hs_cpp_parallel(SEXP GSEXP, SEXP MSEXP, SEXP phase_vecSEXP, SEXP r_startSEXP, SEXP pi_modeSEXP, SEXP pi_prior_inSEXP, SEXP lambdaSEXP, SEXP epsilonSEXP, SEXP tolSEXP, SEXP maxitSEXP, SEXP paternal_modeSEXP, SEXP Pi_prior_inSEXP, SEXP r_initSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -28,7 +28,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type maxit(maxitSEXP);
     Rcpp::traits::input_parameter< std::string >::type paternal_mode(paternal_modeSEXP);
     Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type Pi_prior_in(Pi_prior_inSEXP);
-    rcpp_result_gen = Rcpp::wrap(hmm_hs_cpp_parallel(G, M, phase_vec, r_start, pi_mode, pi_prior_in, lambda, epsilon, tol, maxit, paternal_mode, Pi_prior_in));
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericVector> >::type r_init(r_initSEXP);
+    rcpp_result_gen = Rcpp::wrap(hmm_hs_cpp_parallel(G, M, phase_vec, r_start, pi_mode, pi_prior_in, lambda, epsilon, tol, maxit, paternal_mode, Pi_prior_in, r_init));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -124,7 +125,7 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_HSMap_hmm_hs_cpp_parallel", (DL_FUNC) &_HSMap_hmm_hs_cpp_parallel, 12},
+    {"_HSMap_hmm_hs_cpp_parallel", (DL_FUNC) &_HSMap_hmm_hs_cpp_parallel, 13},
     {"_HSMap_gamma_cpp", (DL_FUNC) &_HSMap_gamma_cpp, 6},
     {"_HSMap_hmm_hs_joint_cpp", (DL_FUNC) &_HSMap_hmm_hs_joint_cpp, 12},
     {"_HSMap_loglik_hs_cpp", (DL_FUNC) &_HSMap_loglik_hs_cpp, 6},
