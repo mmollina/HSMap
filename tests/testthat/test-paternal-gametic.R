@@ -267,3 +267,84 @@ test_that("legacy pi priors with the same induced q give identical results", {
           paternal_mode = "per_marker", pi_prior_in = piB, tol = 1e-6, maxit = 500))
   expect_identical(mA$fit$r, mB$fit$r)
 })
+
+# ---- M1.2: pseudocount (MAP) interpretation and the mild default --------------
+
+test_that("the default gametic prior is alpha = beta = 10 (historical lambda = 20)", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  set.seed(7); Tm <- 30; r_true <- runif(Tm - 1, 0.01, 0.15)
+  sim <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 200,
+                       marker_intersection = 1, r_vec = r_true,
+                       phase_mode = "random", repulsion_rate = 0.3,
+                       maternal_geno_mode = "all_het",
+                       paternal_pA_base = 0.4, error_rate = 0.01, seed = 7)
+  dat <- make_dat(sim); mk <- sim$truth$markers_union
+  oph <- oracle_phased(mk, 1L - sim$truth$v_true[[1]], "P1")
+  m_def <- hmm_map(dat, phased = oph, dam = 1, epsilon = 0.01,
+                   paternal_mode = "gametic", tol = 1e-6, maxit = 500)
+  m_10  <- hmm_map(dat, phased = oph, dam = 1, epsilon = 0.01, paternal_mode = "gametic",
+                   q_prior_in = list(alpha = 10, beta = 10), tol = 1e-6, maxit = 500)
+  expect_identical(m_def$fit$r, m_10$fit$r)
+  expect_identical(m_def$fit$q, m_10$fit$q)
+})
+
+test_that("alpha = beta = 0 reproduces the unpenalized engine update", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  set.seed(9); Tm <- 25; r_true <- runif(Tm - 1, 0.02, 0.12)
+  sim <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 300,
+                       marker_intersection = 1, r_vec = r_true,
+                       phase_mode = "random", repulsion_rate = 0.3,
+                       maternal_geno_mode = "all_het",
+                       paternal_pA_base = 0.4, error_rate = 0.01, seed = 9)
+  dat <- make_dat(sim); mk <- sim$truth$markers_union
+  oph <- oracle_phased(mk, 1L - sim$truth$v_true[[1]], "P1")
+  G <- dat$G_list[[1]][, mk, drop = FALSE]; storage.mode(G) <- "integer"
+  M <- as.integer(dat$M_list[[1]][mk]); ph <- as.integer(1L - sim$truth$v_true[[1]])
+  m0 <- hmm_map(dat, phased = oph, dam = 1, epsilon = 0.01, paternal_mode = "gametic",
+                q_prior_in = list(alpha = 0, beta = 0), r_start = 0.05, tol = 1e-7, maxit = 1000)
+  eng <- HSMap:::hmm_hs_cpp_parallel(G, M, ph, r_start = 0.05, pi_mode = "HWE",
+             pi_prior_in = NULL, lambda = 0, epsilon = 0.01, tol = 1e-7, maxit = 1000,
+             paternal_mode = "HWE")
+  expect_equal(as.numeric(m0$fit$r), as.numeric(eng$r), tolerance = 1e-8)
+})
+
+test_that("the equivalent probability prior is Beta(alpha + 1, beta + 1)", {
+  # The M-step maximizes N_A log q + N_a log(1-q) + alpha log q + beta log(1-q).
+  N_A <- 7; N_a <- 13; alpha <- 3; beta <- 5
+  update <- (N_A + alpha) / (N_A + N_a + alpha + beta)
+
+  pen_obj <- function(q) N_A*log(q) + N_a*log(1 - q) + alpha*log(q) + beta*log(1 - q)
+  argmax  <- stats::optimize(pen_obj, c(1e-9, 1 - 1e-9), maximum = TRUE, tol = 1e-12)$maximum
+  expect_equal(update, argmax, tolerance = 1e-5)
+
+  # mode of the Beta(N_A + alpha + 1, N_a + beta + 1) posterior == the update
+  a_post <- N_A + alpha + 1; b_post <- N_a + beta + 1
+  expect_equal(update, (a_post - 1) / (a_post + b_post - 2), tolerance = 1e-12)
+
+  # treating alpha,beta as ordinary Beta shape params (penalty alpha-1,beta-1)
+  # gives a different value -> the two interpretations are distinguishable
+  wrong <- (N_A + alpha - 1) / (N_A + N_a + (alpha - 1) + (beta - 1))
+  expect_false(isTRUE(all.equal(update, wrong)))
+})
+
+test_that("lambda = 20 equals alpha = beta = 10, and the default applies shrinkage", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  set.seed(7); Tm <- 30; r_true <- runif(Tm - 1, 0.01, 0.15)
+  sim <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 200,
+                       marker_intersection = 1, r_vec = r_true,
+                       phase_mode = "random", repulsion_rate = 0.3,
+                       maternal_geno_mode = "all_het",
+                       paternal_pA_base = 0.4, error_rate = 0.01, seed = 7)
+  dat <- make_dat(sim); mk <- sim$truth$markers_union
+  oph <- oracle_phased(mk, 1L - sim$truth$v_true[[1]], "P1")
+  m_20 <- hmm_map(dat, phased = oph, dam = 1, epsilon = 0.01, paternal_mode = "gametic",
+                  lambda = 20, tol = 1e-6, maxit = 500)
+  m_10 <- hmm_map(dat, phased = oph, dam = 1, epsilon = 0.01, paternal_mode = "gametic",
+                  q_prior_in = list(alpha = 10, beta = 10), tol = 1e-6, maxit = 500)
+  expect_identical(m_20$fit$r, m_10$fit$r)
+  expect_identical(m_20$fit$q, m_10$fit$q)
+  # the regularized default differs from no regularization (alpha = beta = 0)
+  m_0 <- hmm_map(dat, phased = oph, dam = 1, epsilon = 0.01, paternal_mode = "gametic",
+                 q_prior_in = list(alpha = 0, beta = 0), tol = 1e-6, maxit = 500)
+  expect_false(isTRUE(all.equal(m_20$fit$q, m_0$fit$q)))
+})

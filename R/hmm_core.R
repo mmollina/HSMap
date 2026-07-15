@@ -48,28 +48,37 @@
 #'     \item{\code{"two_locus"}}{Disabled (informative error). The 10-class
 #'       two-locus mixture does not identify paternal linkage disequilibrium.}
 #'   }
-#' @param q_prior_in Optional gametic Beta prior on the sire allele frequency
-#'   \eqn{q_k}. One of: \code{NULL} (default; uniform-genotype prior with strength
-#'   \code{lambda}); a numeric scalar or length-\eqn{T} vector of prior means
-#'   \eqn{q^{(0)}_k} (concentration \code{lambda}); or \code{list(alpha=, beta=)}
-#'   giving an explicit \eqn{\mathrm{Beta}(\alpha_k,\beta_k)} (scalars or
-#'   length-\eqn{T}). Per-marker means are supported; the concentration
-#'   \eqn{\alpha+\beta} must be constant across markers. The paternal M-step is
-#'   the Beta posterior mean
-#'   \eqn{\hat q_k = (N_{A,k}+\alpha_k)/(N_{A,k}+N_{a,k}+\alpha_k+\beta_k)}, where
-#'   \eqn{N_{A,k}, N_{a,k}} are the expected paternal A-/a-gamete counts; with
-#'   \eqn{\alpha_k=\lambda q^{(0)}_k}, \eqn{\beta_k=\lambda(1-q^{(0)}_k)},
-#'   \eqn{\lambda=\alpha_k+\beta_k}. Setting \eqn{\alpha=\beta=0} gives no
-#'   shrinkage (the MLE of \eqn{q}). Takes precedence over \code{pi_prior_in}.
+#' @param q_prior_in Optional gametic prior on the sire allele frequency
+#'   \eqn{q_k}, supplied as \strong{pseudocounts}. One of: \code{NULL} (default;
+#'   uses the historical strength \code{lambda = 20}, i.e. \eqn{\alpha=\beta=10}
+#'   at prior mean \eqn{0.5}); a numeric scalar or length-\eqn{T} vector of prior means
+#'   \eqn{q^{(0)}_k} (total pseudocount \code{lambda}); or \code{list(alpha=,
+#'   beta=)} giving explicit non-negative pseudocounts (scalars or length-\eqn{T}).
+#'   Per-marker means are supported; the total pseudocount \eqn{\alpha+\beta} must
+#'   be constant across markers. The paternal M-step is the penalized (MAP) update
+#'   \deqn{\hat q_k = (N_{A,k}+\alpha_k)/(N_{A,k}+N_{a,k}+\alpha_k+\beta_k),}
+#'   where \eqn{N_{A,k}, N_{a,k}} are the expected paternal A-/a-gamete counts;
+#'   it maximizes \eqn{\log L + \sum_k[\alpha_k\log q_k + \beta_k\log(1-q_k)]}.
+#'   \strong{\eqn{\alpha,\beta} are pseudocounts, not Beta shape parameters}: the
+#'   equivalent probability prior is \eqn{\mathrm{Beta}(\alpha_k+1,\beta_k+1)}, so
+#'   \eqn{\alpha=\beta=0} is the uniform \eqn{\mathrm{Beta}(1,1)} prior (MAP =
+#'   unregularized fit). With a numeric mean, \eqn{\alpha_k=\lambda q^{(0)}_k} and
+#'   \eqn{\beta_k=\lambda(1-q^{(0)}_k)}. Takes precedence over \code{pi_prior_in}.
 #' @param r_start Initial recombination fraction for all intervals.
 #'   Default \code{0.05}.
-#' @param lambda Dirichlet shrinkage strength for paternal parameters.
-#'   Default \code{20}.
+#' @param lambda Default total pseudocount \eqn{\alpha+\beta} for the gametic
+#'   paternal prior when \code{q_prior_in} is \code{NULL} or a numeric mean.
+#'   Default \code{20} (\eqn{\alpha=\beta=10} at prior mean \eqn{0.5}). This value
+#'   is the historical default and is kept for backward compatibility only; it is
+#'   \strong{not} a statistically validated recommendation. It can over-shrink
+#'   \eqn{q} at extreme sire allele frequencies (a separate simulation study on
+#'   the corrected engine is needed to choose a default). See \code{q_prior_in};
+#'   set \eqn{\alpha=\beta=0} for no regularization.
 #' @param maxit Maximum EM iterations. Default \code{200}.
-#' @param pi_prior_in Optional 3 x T paternal prior. Only its implied gametic
-#'   allele frequency \eqn{q^{(0)}_k = \pi^{(0)}_{AA} + \tfrac12\pi^{(0)}_{Aa}} is
-#'   used (the genotype split is not identifiable). A dedicated \code{q_prior_in}
-#'   argument is planned as the next API cleanup.
+#' @param pi_prior_in Optional 3 x T paternal prior (legacy). Only its implied
+#'   gametic allele frequency \eqn{q^{(0)}_k = \pi^{(0)}_{AA} +
+#'   \tfrac12\pi^{(0)}_{Aa}} is used (the genotype split is not identifiable);
+#'   prefer \code{q_prior_in}, which supersedes it.
 #' @param Pi_prior_in Optional 10 x (T-1) prior for interval classes when
 #'   \code{paternal_mode == "two_locus"}.
 #' @param method Multi-dam estimator. \code{"joint"} (default) fits one shared
@@ -103,14 +112,16 @@
 #' @section Paternal identifiability:
 #' The offspring likelihood depends on the paternal contribution \emph{only}
 #' through the sire gametic allele frequency \eqn{q_k = \pi_{AA} + \tfrac12
-#' \pi_{Aa}}. The unpenalized MLE of \eqn{q} (and hence of \eqn{\mathbf r}) is
-#' therefore invariant to how any genotype-frequency vector is split at fixed
-#' \eqn{q}. The regularized estimator, however, depends on the prior: the
-#' \code{"gametic"} model shrinks \eqn{q} under an explicit \eqn{\mathrm{Beta}}
-#' prior (see \code{q_prior_in}), which \emph{need not} coincide with the legacy
-#' \code{"per_marker"} Dirichlet-on-genotypes regularizer even though both share
-#' the same unpenalized likelihood. Set \eqn{\alpha=\beta=0} to remove shrinkage
-#' and recover the common MLE.
+#' \pi_{Aa}}: any two genotype-frequency vectors with the same \eqn{q} give the
+#' same likelihood and the same fitted \eqn{\mathbf r}. The \emph{regularized}
+#' estimate does depend on the prior. The \code{"gametic"} model applies a
+#' penalty \eqn{\alpha\log q + \beta\log(1-q)} (a \eqn{\mathrm{Beta}(\alpha+1,
+#' \beta+1)} prior; see \code{q_prior_in}), which \emph{need not} coincide with
+#' the legacy \code{"per_marker"} Dirichlet-on-genotypes regularizer even though
+#' both share the same unpenalized objective. Setting \eqn{\alpha=\beta=0} removes
+#' the penalty (uniform \eqn{\mathrm{Beta}(1,1)} prior), giving the unregularized
+#' fit; because the objective may have multiple optima this is not asserted to be
+#' the global MLE.
 #'
 #' @section Consensus r:
 #' For several dams fitted on the same marker order, we form a consensus

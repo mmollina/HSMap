@@ -51,16 +51,22 @@ informative error. See \code{\link{hmm_map}}.}
 
 \item{r_start}{Initial recombination fraction for all intervals. Default \code{0.05}.}
 
-\item{lambda}{Dirichlet shrinkage strength for paternal parameters. Default \code{20}.}
+\item{lambda}{Default total pseudocount \eqn{\alpha+\beta} for the gametic
+paternal prior when \code{q_prior_list} is \code{NULL} or a numeric mean.
+Default \code{20} (\eqn{\alpha=\beta=10} at prior mean \eqn{0.5}); the
+historical default, kept for backward compatibility only and \strong{not} a
+statistically validated recommendation. See \code{\link{hmm_map}}'s
+\code{q_prior_in}.}
 
 \item{maxit}{Maximum EM iterations. Default \code{200}.}
 
-\item{q_prior_list}{Optional gametic Beta prior on \eqn{q_k}, shared across
-dams or per dam. Either a single spec applied to all dams (a numeric mean
-vector, or \code{list(alpha=, beta=)}; see \code{\link{hmm_map}}'s
-\code{q_prior_in}) or a named/positional list of such specs, one per dam.
-Per-dam prior means are supported; the concentration \eqn{\alpha+\beta} must
-be common across dams. Takes precedence over \code{pi_prior_list}.}
+\item{q_prior_list}{Optional gametic pseudocount prior on \eqn{q_k}, shared
+across dams or per dam. Either a single spec applied to all dams (a numeric
+mean vector, or \code{list(alpha=, beta=)} pseudocounts; see
+\code{\link{hmm_map}}'s \code{q_prior_in}) or a named/positional list of such
+specs, one per dam. Per-dam prior means are supported; the total pseudocount
+\eqn{\alpha+\beta} must be common across dams. Takes precedence over
+\code{pi_prior_list}.}
 
 \item{pi_prior_list, Pi_prior_list}{Optional named lists of per-dam priors
 (\code{3 x T} for Model A, \code{10 x (T-1)} for \code{two_locus}).}
