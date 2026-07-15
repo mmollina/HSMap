@@ -28,10 +28,17 @@
 #'   \code{"gametic"} (and its identical alias \code{"HWE"}) parameterizes the
 #'   paternal contribution by the single identifiable per-marker, per-dam sire
 #'   gametic allele frequency \eqn{q_k = \pi_{AA} + \tfrac12\pi_{Aa}}, returned in
-#'   \code{fit$q_list}. \code{"per_marker"} and \code{"two_locus"} are
-#'   non-identifiable and disabled at the public API. See \code{\link{hmm_map}}.
+#'   \code{fit$q_list}. \code{"per_marker"} is deprecated (accepted with a warning
+#'   and routed to \code{"gametic"}); \code{"two_locus"} is disabled with an
+#'   informative error. See \code{\link{hmm_map}}.
 #' @param pi_mode Retained for backward compatibility only and ignored by the
 #'   identifiable paternal model.
+#' @param q_prior_list Optional gametic Beta prior on \eqn{q_k}, shared across
+#'   dams or per dam. Either a single spec applied to all dams (a numeric mean
+#'   vector, or \code{list(alpha=, beta=)}; see \code{\link{hmm_map}}'s
+#'   \code{q_prior_in}) or a named/positional list of such specs, one per dam.
+#'   Per-dam prior means are supported; the concentration \eqn{\alpha+\beta} must
+#'   be common across dams. Takes precedence over \code{pi_prior_list}.
 #' @param r_start Initial recombination fraction for all intervals. Default \code{0.05}.
 #' @param lambda Dirichlet shrinkage strength for paternal parameters. Default \code{20}.
 #' @param maxit Maximum EM iterations. Default \code{200}.
@@ -41,8 +48,9 @@
 #' @return An object of class \code{c("HSMap.map.joint","HSMap.map")} with
 #'   \code{order} (shared), \code{dams}, \code{phase_list} (per dam),
 #'   \code{fit} (the C++ result: shared \code{r}, per-dam \code{pi_list}, etc.) and
-#'   a top-level \code{r}. The \code{fit} carries \code{fit$q_list}, the canonical
-#'   per-dam sire gametic allele frequencies \eqn{q_k}; \code{fit$pi_list} is
+#'   a top-level \code{r}. The canonical per-dam paternal output is
+#'   \code{fit$q_list} (sire gametic allele frequencies \eqn{q_k}).
+#'   \strong{\code{fit$pi_list} is deprecated for direct interpretation}: it is
 #'   retained only as the derived HWE-form emission table and is \emph{not} an
 #'   estimate of paternal genotype frequencies. Because it carries \code{fit$r}
 #'   and \code{order}, it works directly with [get_map()] and [plot_map_list()].
@@ -61,6 +69,7 @@ hmm_map_joint <- function(
     r_start = 0.05,
     lambda = 20,
     maxit = 200,
+    q_prior_list = NULL,
     pi_prior_list = NULL,
     Pi_prior_list = NULL
 ) {
@@ -147,14 +156,46 @@ hmm_map_joint <- function(
     phase_list[[nm]] <- as.integer(pv)
   }
 
+  # Resolve gametic Beta priors into per-dam engine priors (pi_prior_list) and a
+  # shared concentration (lambda). A single Beta spec is applied to all dams; a
+  # per-dam list is indexed by dam name (or position). The concentration
+  # (alpha + beta) must be common across dams (the engine takes one lambda).
+  Tn <- length(ord)
+  if (is.null(q_prior_list)) {
+    pi_prior_list_eff <- pi_prior_list
+    lambda_eff <- lambda
+  } else {
+    is_single <- is.numeric(q_prior_list) ||
+      (is.list(q_prior_list) && all(c("alpha", "beta") %in% names(q_prior_list)))
+    if (is_single) {
+      eng <- .hsmap_q_prior_to_engine(q_prior_list, lambda, Tn)
+      pi_prior_list_eff <- stats::setNames(rep(list(eng$pi_prior), length(dams_req)), dams_req)
+      lambda_eff <- eng$lambda
+    } else {
+      if (!is.list(q_prior_list))
+        stop("`q_prior_list` must be NULL, a single Beta spec, or a per-dam list.", call. = FALSE)
+      engs <- lapply(dams_req, function(d) {
+        spec <- if (!is.null(names(q_prior_list))) q_prior_list[[d]] else q_prior_list[[match(d, dams_req)]]
+        .hsmap_q_prior_to_engine(spec, lambda, Tn)
+      })
+      lams <- vapply(engs, function(e) e$lambda, numeric(1))
+      if (diff(range(lams)) > 1e-8 * max(c(lams, 1)))
+        stop("joint fits require a common Beta concentration (alpha + beta) across dams.", call. = FALSE)
+      pi_prior_list_eff <- stats::setNames(lapply(engs, function(e) e$pi_prior), dams_req)
+      lambda_eff <- lams[[1]]
+    }
+    if (!is.null(pi_prior_list))
+      warning("Both `q_prior_list` and `pi_prior_list` supplied; using `q_prior_list`.", call. = FALSE)
+  }
+
   fit <- hmm_hs_joint_cpp(
     G_list = G_list,
     M_list = M_list,
     phase_list = phase_list,
     r_start = r_start,
     pi_mode = "HWE",
-    pi_prior_list_in = pi_prior_list,
-    lambda = lambda,
+    pi_prior_list_in = pi_prior_list_eff,
+    lambda = lambda_eff,
     epsilon = epsilon,
     tol = tol,
     maxit = maxit,

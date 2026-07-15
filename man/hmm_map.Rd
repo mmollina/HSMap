@@ -16,6 +16,7 @@ hmm_map(
   r_start = 0.05,
   lambda = 20,
   maxit = 200,
+  q_prior_in = NULL,
   pi_prior_in = NULL,
   Pi_prior_in = NULL,
   method = c("joint", "consensus"),
@@ -62,9 +63,10 @@ Returned in \code{fit$q}.}
 mathematically identical (under Hardy--Weinberg the allele frequency
 \eqn{p_k \equiv q_k}), so it yields byte-identical results. It is
 \emph{not} a separately identifiable biological model.}
-\item{\code{"per_marker"}}{Disabled (informative error). The three free
-paternal genotype frequencies are not identifiable (only \eqn{q_k} is);
-the legacy engine remains reachable via the internal
+\item{\code{"per_marker"}}{Deprecated. Accepted with a warning and routed
+to \code{"gametic"}; any supplied \code{pi_prior_in} is collapsed to its
+induced \eqn{q}. The three free genotype frequencies are not identifiable
+(only \eqn{q_k} is). The legacy engine remains reachable via the internal
 \code{hmm_hs_cpp_parallel()} for historical reproduction.}
 \item{\code{"two_locus"}}{Disabled (informative error). The 10-class
 two-locus mixture does not identify paternal linkage disequilibrium.}
@@ -77,6 +79,20 @@ Default \code{0.05}.}
 Default \code{20}.}
 
 \item{maxit}{Maximum EM iterations. Default \code{200}.}
+
+\item{q_prior_in}{Optional gametic Beta prior on the sire allele frequency
+\eqn{q_k}. One of: \code{NULL} (default; uniform-genotype prior with strength
+\code{lambda}); a numeric scalar or length-\eqn{T} vector of prior means
+\eqn{q^{(0)}_k} (concentration \code{lambda}); or \code{list(alpha=, beta=)}
+giving an explicit \eqn{\mathrm{Beta}(\alpha_k,\beta_k)} (scalars or
+length-\eqn{T}). Per-marker means are supported; the concentration
+\eqn{\alpha+\beta} must be constant across markers. The paternal M-step is
+the Beta posterior mean
+\eqn{\hat q_k = (N_{A,k}+\alpha_k)/(N_{A,k}+N_{a,k}+\alpha_k+\beta_k)}, where
+\eqn{N_{A,k}, N_{a,k}} are the expected paternal A-/a-gamete counts; with
+\eqn{\alpha_k=\lambda q^{(0)}_k}, \eqn{\beta_k=\lambda(1-q^{(0)}_k)},
+\eqn{\lambda=\alpha_k+\beta_k}. Setting \eqn{\alpha=\beta=0} gives no
+shrinkage (the MLE of \eqn{q}). Takes precedence over \code{pi_prior_in}.}
 
 \item{pi_prior_in}{Optional 3 x T paternal prior. Only its implied gametic
 allele frequency \eqn{q^{(0)}_k = \pi^{(0)}_{AA} + \tfrac12\pi^{(0)}_{Aa}} is
@@ -102,10 +118,11 @@ If \code{TRUE} and multiple dams are requested, also compute a consensus
 \value{
 If a single dam is requested, an object of class \code{"HSMap.map"} with
 \code{order}, \code{phase_vec}, \code{fit} (the C++ HMM result) and
-\code{dam}. The \code{fit} carries \code{fit$q} (the canonical per-marker sire
-gametic allele frequency \eqn{q_k}); \code{fit$pi} is retained only as the
-derived HWE-form emission table used by downstream decoders and is \emph{not}
-an estimate of paternal genotype frequencies. If multiple dams are requested
+\code{dam}. The canonical paternal output is \code{fit$q}, the per-marker sire
+gametic allele frequency \eqn{q_k}. \strong{\code{fit$pi} is deprecated for
+direct interpretation}: it is retained only as the derived HWE-form emission
+table (\eqn{[q^2, 2q(1-q), (1-q)^2]}) consumed by downstream decoders, and is
+\emph{not} an estimate of paternal genotype frequencies. If multiple dams are requested
 with \code{method = "joint"}
 (default), a single shared map of class \code{c("HSMap.map.joint","HSMap.map")}
 (see \code{\link{hmm_map_joint}}), directly usable by \code{\link{get_map}} and
@@ -122,6 +139,20 @@ HMM per family, and returns the per-dam results together. If
 \code{return_consensus = TRUE}, a consensus recombination fraction (\code{r}) per
 interval is also computed across the selected dams (see \emph{Consensus r}).
 }
+\section{Paternal identifiability}{
+
+The offspring likelihood depends on the paternal contribution \emph{only}
+through the sire gametic allele frequency \eqn{q_k = \pi_{AA} + \tfrac12
+\pi_{Aa}}. The unpenalized MLE of \eqn{q} (and hence of \eqn{\mathbf r}) is
+therefore invariant to how any genotype-frequency vector is split at fixed
+\eqn{q}. The regularized estimator, however, depends on the prior: the
+\code{"gametic"} model shrinks \eqn{q} under an explicit \eqn{\mathrm{Beta}}
+prior (see \code{q_prior_in}), which \emph{need not} coincide with the legacy
+\code{"per_marker"} Dirichlet-on-genotypes regularizer even though both share
+the same unpenalized likelihood. Set \eqn{\alpha=\beta=0} to remove shrinkage
+and recover the common MLE.
+}
+
 \section{Consensus r}{
 
 For several dams fitted on the same marker order, we form a consensus

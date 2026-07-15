@@ -16,6 +16,7 @@ hmm_map_joint(
   r_start = 0.05,
   lambda = 20,
   maxit = 200,
+  q_prior_list = NULL,
   pi_prior_list = NULL,
   Pi_prior_list = NULL
 )
@@ -44,14 +45,22 @@ identifiable paternal model.}
 \code{"gametic"} (and its identical alias \code{"HWE"}) parameterizes the
 paternal contribution by the single identifiable per-marker, per-dam sire
 gametic allele frequency \eqn{q_k = \pi_{AA} + \tfrac12\pi_{Aa}}, returned in
-\code{fit$q_list}. \code{"per_marker"} and \code{"two_locus"} are
-non-identifiable and disabled at the public API. See \code{\link{hmm_map}}.}
+\code{fit$q_list}. \code{"per_marker"} is deprecated (accepted with a warning
+and routed to \code{"gametic"}); \code{"two_locus"} is disabled with an
+informative error. See \code{\link{hmm_map}}.}
 
 \item{r_start}{Initial recombination fraction for all intervals. Default \code{0.05}.}
 
 \item{lambda}{Dirichlet shrinkage strength for paternal parameters. Default \code{20}.}
 
 \item{maxit}{Maximum EM iterations. Default \code{200}.}
+
+\item{q_prior_list}{Optional gametic Beta prior on \eqn{q_k}, shared across
+dams or per dam. Either a single spec applied to all dams (a numeric mean
+vector, or \code{list(alpha=, beta=)}; see \code{\link{hmm_map}}'s
+\code{q_prior_in}) or a named/positional list of such specs, one per dam.
+Per-dam prior means are supported; the concentration \eqn{\alpha+\beta} must
+be common across dams. Takes precedence over \code{pi_prior_list}.}
 
 \item{pi_prior_list, Pi_prior_list}{Optional named lists of per-dam priors
 (\code{3 x T} for Model A, \code{10 x (T-1)} for \code{two_locus}).}
@@ -60,8 +69,9 @@ non-identifiable and disabled at the public API. See \code{\link{hmm_map}}.}
 An object of class \code{c("HSMap.map.joint","HSMap.map")} with
 \code{order} (shared), \code{dams}, \code{phase_list} (per dam),
 \code{fit} (the C++ result: shared \code{r}, per-dam \code{pi_list}, etc.) and
-a top-level \code{r}. The \code{fit} carries \code{fit$q_list}, the canonical
-per-dam sire gametic allele frequencies \eqn{q_k}; \code{fit$pi_list} is
+a top-level \code{r}. The canonical per-dam paternal output is
+\code{fit$q_list} (sire gametic allele frequencies \eqn{q_k}).
+\strong{\code{fit$pi_list} is deprecated for direct interpretation}: it is
 retained only as the derived HWE-form emission table and is \emph{not} an
 estimate of paternal genotype frequencies. Because it carries \code{fit$r}
 and \code{order}, it works directly with \code{\link[=get_map]{get_map()}} and \code{\link[=plot_map_list]{plot_map_list()}}.

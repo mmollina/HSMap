@@ -92,17 +92,25 @@ test_that("D = 1 joint equals single-dam under gametic", {
   expect_equal(as.numeric(mj$fit$r), as.numeric(ms$fit$r), tolerance = 1e-8)
 })
 
-test_that("per_marker is disabled with an informative error", {
-  set.seed(1); Tm <- 10
-  sim <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 50,
-                       marker_intersection = 1, r_const = 0.1,
-                       phase_mode = "all_coupling", maternal_geno_mode = "all_het",
-                       paternal_pA_base = 0.5, seed = 1)
+test_that("per_marker is deprecated: warns and routes to gametic", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  set.seed(7); Tm <- 30
+  r_true <- runif(Tm - 1, 0.01, 0.15)
+  sim <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 200,
+                       marker_intersection = 1, r_vec = r_true,
+                       phase_mode = "random", repulsion_rate = 0.3,
+                       maternal_geno_mode = "all_het",
+                       paternal_pA_base = 0.4, error_rate = 0.01, seed = 7)
   dat <- make_dat(sim); mk <- sim$truth$markers_union
   oph <- oracle_phased(mk, 1L - sim$truth$v_true[[1]], "P1")
-  expect_error(
-    hmm_map(dat, phased = oph, dam = 1, paternal_mode = "per_marker"),
-    "not identifiable|deprecated")
+
+  mg <- hmm_map(dat, phased = oph, dam = 1, epsilon = 0.01,
+                paternal_mode = "gametic", tol = 1e-6, maxit = 500)
+  expect_warning(
+    mp <- hmm_map(dat, phased = oph, dam = 1, epsilon = 0.01,
+                  paternal_mode = "per_marker", tol = 1e-6, maxit = 500),
+    "deprecated")
+  expect_identical(mp$fit$r, mg$fit$r)   # routed to gametic -> byte-identical
 })
 
 test_that("two_locus is disabled with an informative error", {
@@ -150,4 +158,112 @@ test_that("fit$q / fit$q_list are the canonical paternal outputs", {
   expect_equal(unname(mj$fit$q_list[[1]]),
                unname(as.numeric(mj$fit$pi_list[[1]]["AA", ] + 0.5 * mj$fit$pi_list[[1]]["Aa", ])),
                tolerance = 1e-12)
+})
+
+# ---- M1.1: first-class gametic Beta(alpha, beta) priors -----------------------
+
+test_that("gametic recovers q near 0 and near 1 (no shrinkage)", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  Tm <- 30; r_true <- rep(0.05, Tm - 1)
+  fit_mean_q <- function(pA, seed) {
+    sim <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 400,
+                         marker_intersection = 1, r_vec = r_true,
+                         phase_mode = "all_coupling", maternal_geno_mode = "all_het",
+                         paternal_pA_base = pA, error_rate = 0, seed = seed)
+    dat <- make_dat(sim); mk <- sim$truth$markers_union
+    oph <- oracle_phased(mk, 1L - sim$truth$v_true[[1]], "P1")
+    m <- hmm_map(dat, phased = oph, dam = 1, epsilon = 1e-6, paternal_mode = "gametic",
+                 q_prior_in = list(alpha = 0, beta = 0), tol = 1e-7, maxit = 800)
+    expect_true(all(m$fit$q >= 0 & m$fit$q <= 1))
+    mean(m$fit$q)
+  }
+  expect_lt(fit_mean_q(0.05, 3), 0.15)   # true q ~ 0.05
+  expect_gt(fit_mean_q(0.95, 4), 0.85)   # true q ~ 0.95
+})
+
+test_that("uninformative markers fall back to the q prior mean", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  set.seed(5); Tm <- 20; r_true <- rep(0.05, Tm - 1)
+  sim <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 200,
+                       marker_intersection = 1, r_vec = r_true,
+                       phase_mode = "all_coupling", maternal_geno_mode = "all_het",
+                       paternal_pA_base = 0.4, error_rate = 0, seed = 5)
+  dat <- make_dat(sim); mk <- sim$truth$markers_union
+  dat$G_list[[1]][, 10] <- NA_integer_          # marker 10 uninformative for q
+  oph <- oracle_phased(mk, 1L - sim$truth$v_true[[1]], "P1")
+  m <- hmm_map(dat, phased = oph, dam = 1, epsilon = 1e-3, paternal_mode = "gametic",
+               q_prior_in = 0.3, lambda = 40, tol = 1e-7, maxit = 800)
+  expect_equal(m$fit$q[[10]], 0.3, tolerance = 1e-6)
+})
+
+test_that("no shrinkage (lambda = 0): the prior mean is ignored at convergence", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  set.seed(9); Tm <- 25; r_true <- runif(Tm - 1, 0.02, 0.12)
+  sim <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 300,
+                       marker_intersection = 1, r_vec = r_true,
+                       phase_mode = "random", repulsion_rate = 0.3,
+                       maternal_geno_mode = "all_het",
+                       paternal_pA_base = 0.4, error_rate = 0.01, seed = 9)
+  dat <- make_dat(sim); mk <- sim$truth$markers_union
+  oph <- oracle_phased(mk, 1L - sim$truth$v_true[[1]], "P1")
+  m_a <- hmm_map(dat, phased = oph, dam = 1, epsilon = 0.01, paternal_mode = "gametic",
+                 q_prior_in = 0.2, lambda = 0, tol = 1e-8, maxit = 1500)
+  m_b <- hmm_map(dat, phased = oph, dam = 1, epsilon = 0.01, paternal_mode = "gametic",
+                 q_prior_in = 0.8, lambda = 0, tol = 1e-8, maxit = 1500)
+  expect_equal(as.numeric(m_a$fit$r), as.numeric(m_b$fit$r), tolerance = 1e-4)
+  expect_equal(as.numeric(m_a$fit$q), as.numeric(m_b$fit$q), tolerance = 1e-4)
+})
+
+test_that("marker-specific q priors set uninformative markers to their own means", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  set.seed(6); Tm <- 20; r_true <- rep(0.05, Tm - 1)
+  sim <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 150,
+                       marker_intersection = 1, r_vec = r_true,
+                       phase_mode = "all_coupling", maternal_geno_mode = "all_het",
+                       paternal_pA_base = 0.5, error_rate = 0, seed = 6)
+  dat <- make_dat(sim); mk <- sim$truth$markers_union
+  dat$G_list[[1]][, 5]  <- NA_integer_
+  dat$G_list[[1]][, 15] <- NA_integer_
+  oph <- oracle_phased(mk, 1L - sim$truth$v_true[[1]], "P1")
+  means <- rep(0.5, Tm); means[5] <- 0.2; means[15] <- 0.8
+  conc <- 50
+  qp <- list(alpha = conc * means, beta = conc * (1 - means))   # constant concentration
+  fit <- hmm_map(dat, phased = oph, dam = 1, epsilon = 1e-3, paternal_mode = "gametic",
+                 q_prior_in = qp, tol = 1e-7, maxit = 800)
+  expect_equal(fit$fit$q[[5]],  0.2, tolerance = 1e-6)
+  expect_equal(fit$fit$q[[15]], 0.8, tolerance = 1e-6)
+})
+
+test_that("per-marker Beta concentration must be constant across markers", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  set.seed(1); Tm <- 10
+  sim <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 50,
+                       marker_intersection = 1, r_const = 0.1,
+                       phase_mode = "all_coupling", maternal_geno_mode = "all_het",
+                       paternal_pA_base = 0.5, seed = 1)
+  dat <- make_dat(sim); mk <- sim$truth$markers_union
+  oph <- oracle_phased(mk, 1L - sim$truth$v_true[[1]], "P1")
+  bad <- list(alpha = c(5, rep(10, Tm - 1)), beta = rep(10, Tm))  # alpha+beta not constant
+  expect_error(
+    hmm_map(dat, phased = oph, dam = 1, paternal_mode = "gametic", q_prior_in = bad),
+    "concentration")
+})
+
+test_that("legacy pi priors with the same induced q give identical results", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  set.seed(7); Tm <- 25; r_true <- runif(Tm - 1, 0.01, 0.15)
+  sim <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 200,
+                       marker_intersection = 1, r_vec = r_true,
+                       phase_mode = "random", repulsion_rate = 0.3,
+                       maternal_geno_mode = "all_het",
+                       paternal_pA_base = 0.4, error_rate = 0.01, seed = 7)
+  dat <- make_dat(sim); mk <- sim$truth$markers_union
+  oph <- oracle_phased(mk, 1L - sim$truth$v_true[[1]], "P1")
+  piA <- matrix(c(0.50, 0.00, 0.50), 3, Tm)   # induced q = 0.5
+  piB <- matrix(c(0.25, 0.50, 0.25), 3, Tm)   # induced q = 0.5
+  mA <- suppressWarnings(hmm_map(dat, phased = oph, dam = 1, epsilon = 0.01,
+          paternal_mode = "per_marker", pi_prior_in = piA, tol = 1e-6, maxit = 500))
+  mB <- suppressWarnings(hmm_map(dat, phased = oph, dam = 1, epsilon = 0.01,
+          paternal_mode = "per_marker", pi_prior_in = piB, tol = 1e-6, maxit = 500))
+  expect_identical(mA$fit$r, mB$fit$r)
 })

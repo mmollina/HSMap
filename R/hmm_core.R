@@ -40,13 +40,27 @@
 #'       mathematically identical (under Hardy--Weinberg the allele frequency
 #'       \eqn{p_k \equiv q_k}), so it yields byte-identical results. It is
 #'       \emph{not} a separately identifiable biological model.}
-#'     \item{\code{"per_marker"}}{Disabled (informative error). The three free
-#'       paternal genotype frequencies are not identifiable (only \eqn{q_k} is);
-#'       the legacy engine remains reachable via the internal
+#'     \item{\code{"per_marker"}}{Deprecated. Accepted with a warning and routed
+#'       to \code{"gametic"}; any supplied \code{pi_prior_in} is collapsed to its
+#'       induced \eqn{q}. The three free genotype frequencies are not identifiable
+#'       (only \eqn{q_k} is). The legacy engine remains reachable via the internal
 #'       \code{hmm_hs_cpp_parallel()} for historical reproduction.}
 #'     \item{\code{"two_locus"}}{Disabled (informative error). The 10-class
 #'       two-locus mixture does not identify paternal linkage disequilibrium.}
 #'   }
+#' @param q_prior_in Optional gametic Beta prior on the sire allele frequency
+#'   \eqn{q_k}. One of: \code{NULL} (default; uniform-genotype prior with strength
+#'   \code{lambda}); a numeric scalar or length-\eqn{T} vector of prior means
+#'   \eqn{q^{(0)}_k} (concentration \code{lambda}); or \code{list(alpha=, beta=)}
+#'   giving an explicit \eqn{\mathrm{Beta}(\alpha_k,\beta_k)} (scalars or
+#'   length-\eqn{T}). Per-marker means are supported; the concentration
+#'   \eqn{\alpha+\beta} must be constant across markers. The paternal M-step is
+#'   the Beta posterior mean
+#'   \eqn{\hat q_k = (N_{A,k}+\alpha_k)/(N_{A,k}+N_{a,k}+\alpha_k+\beta_k)}, where
+#'   \eqn{N_{A,k}, N_{a,k}} are the expected paternal A-/a-gamete counts; with
+#'   \eqn{\alpha_k=\lambda q^{(0)}_k}, \eqn{\beta_k=\lambda(1-q^{(0)}_k)},
+#'   \eqn{\lambda=\alpha_k+\beta_k}. Setting \eqn{\alpha=\beta=0} gives no
+#'   shrinkage (the MLE of \eqn{q}). Takes precedence over \code{pi_prior_in}.
 #' @param r_start Initial recombination fraction for all intervals.
 #'   Default \code{0.05}.
 #' @param lambda Dirichlet shrinkage strength for paternal parameters.
@@ -73,10 +87,11 @@
 #' @return
 #' If a single dam is requested, an object of class \code{"HSMap.map"} with
 #' \code{order}, \code{phase_vec}, \code{fit} (the C++ HMM result) and
-#' \code{dam}. The \code{fit} carries \code{fit$q} (the canonical per-marker sire
-#' gametic allele frequency \eqn{q_k}); \code{fit$pi} is retained only as the
-#' derived HWE-form emission table used by downstream decoders and is \emph{not}
-#' an estimate of paternal genotype frequencies. If multiple dams are requested
+#' \code{dam}. The canonical paternal output is \code{fit$q}, the per-marker sire
+#' gametic allele frequency \eqn{q_k}. \strong{\code{fit$pi} is deprecated for
+#' direct interpretation}: it is retained only as the derived HWE-form emission
+#' table (\eqn{[q^2, 2q(1-q), (1-q)^2]}) consumed by downstream decoders, and is
+#' \emph{not} an estimate of paternal genotype frequencies. If multiple dams are requested
 #' with \code{method = "joint"}
 #' (default), a single shared map of class \code{c("HSMap.map.joint","HSMap.map")}
 #' (see \code{\link{hmm_map_joint}}), directly usable by \code{\link{get_map}} and
@@ -84,6 +99,18 @@
 #' \code{"HSMap.map"} objects (class \code{"HSMap.map.multi"}); when
 #' \code{return_consensus = TRUE} the list also includes \code{$consensus} with
 #' fields \code{order}, \code{r}, and \code{weights}.
+#'
+#' @section Paternal identifiability:
+#' The offspring likelihood depends on the paternal contribution \emph{only}
+#' through the sire gametic allele frequency \eqn{q_k = \pi_{AA} + \tfrac12
+#' \pi_{Aa}}. The unpenalized MLE of \eqn{q} (and hence of \eqn{\mathbf r}) is
+#' therefore invariant to how any genotype-frequency vector is split at fixed
+#' \eqn{q}. The regularized estimator, however, depends on the prior: the
+#' \code{"gametic"} model shrinks \eqn{q} under an explicit \eqn{\mathrm{Beta}}
+#' prior (see \code{q_prior_in}), which \emph{need not} coincide with the legacy
+#' \code{"per_marker"} Dirichlet-on-genotypes regularizer even though both share
+#' the same unpenalized likelihood. Set \eqn{\alpha=\beta=0} to remove shrinkage
+#' and recover the common MLE.
 #'
 #' @section Consensus r:
 #' For several dams fitted on the same marker order, we form a consensus
@@ -127,6 +154,7 @@ hmm_map <- function(
     r_start = 0.05,
     lambda = 20,
     maxit = 200,
+    q_prior_in = NULL,
     pi_prior_in = NULL,
     Pi_prior_in = NULL,
     method = c("joint", "consensus"),
@@ -225,14 +253,26 @@ hmm_map <- function(
     storage.mode(G_sub) <- "integer"
     M_sub <- as.integer(Mvec[ord])
 
+    # Resolve the paternal prior. A gametic Beta prior (`q_prior_in`) takes
+    # precedence over a legacy 3xT `pi_prior_in` (which the HWE engine collapses
+    # to its induced q anyway).
+    if (!is.null(q_prior_in)) {
+      eng <- .hsmap_q_prior_to_engine(q_prior_in, lambda, length(ord))
+      pi_prior_eff <- eng$pi_prior; lambda_eff <- eng$lambda
+      if (!is.null(pi_prior_in))
+        warning("Both `q_prior_in` and `pi_prior_in` supplied; using `q_prior_in`.", call. = FALSE)
+    } else {
+      pi_prior_eff <- pi_prior_in; lambda_eff <- lambda
+    }
+
     fit <- hmm_hs_cpp_parallel(
       G = G_sub,
       M = M_sub,
       phase_vec = as.integer(pv),
       r_start = r_start,
       pi_mode = "HWE",
-      pi_prior_in = if (is.null(pi_prior_in)) NULL else pi_prior_in,
-      lambda = lambda,
+      pi_prior_in = pi_prior_eff,
+      lambda = lambda_eff,
       epsilon = epsilon,
       tol = tol,
       maxit = maxit,
@@ -269,7 +309,7 @@ hmm_map <- function(
       x, phased = ph_multi, dam = "all", threads = NULL,
       epsilon = epsilon, tol = tol, pi_mode = pi_mode,
       paternal_mode = paternal_mode, r_start = r_start,
-      lambda = lambda, maxit = maxit
+      lambda = lambda, maxit = maxit, q_prior_list = q_prior_in
     ))
   }
 
@@ -317,13 +357,66 @@ hmm_map <- function(
          "double-heterozygous sires are likelihood-indistinguishable). ",
          "Use paternal_mode = 'gametic'.", call. = FALSE)
   if (identical(paternal_mode, "per_marker"))
-    stop("paternal_mode = 'per_marker' is deprecated and disabled: the three paternal ",
-         "genotype frequencies are not identifiable from half-sib offspring (only ",
-         "q_k = P(paternal gamete transmits A) = pi_AA + 0.5*pi_Aa is identified), so the ",
-         "reported frequencies were prior-driven. Use paternal_mode = 'gametic'. The legacy ",
-         "engine remains internally available via ",
-         "HSMap:::hmm_hs_cpp_parallel(paternal_mode = 'per_marker') for reproducing ",
-         "historical results.", call. = FALSE)
-  # gametic and HWE both route to the HWE engine (p_k == q_k).
+    warning("paternal_mode = 'per_marker' is deprecated: the three paternal genotype ",
+            "frequencies are not identifiable from half-sib offspring (only ",
+            "q_k = P(paternal gamete transmits A) = pi_AA + 0.5*pi_Aa is identified). ",
+            "Routing to the identifiable 'gametic' model; any supplied pi_prior is ",
+            "collapsed to its induced q. The legacy engine remains available via ",
+            "HSMap:::hmm_hs_cpp_parallel(paternal_mode = 'per_marker') for historical ",
+            "reproduction.", call. = FALSE)
+  # gametic, HWE, and (deprecated) per_marker all route to the HWE engine (p_k == q_k).
   "HWE"
+}
+
+# Convert a gametic Beta(alpha, beta) prior on q_k into the internal HWE engine's
+# (pi_prior 3xT, lambda) representation. The engine's per-marker paternal M-step
+#
+#   q_k^{new} = (N_A,k + alpha_k) / (N_A,k + N_a,k + alpha_k + beta_k)
+#
+# is exactly the Beta(alpha_k, beta_k) posterior mean of q_k given the expected
+# paternal A-/a-gamete counts (N_A, N_a), with alpha_k = lambda * q0_k,
+# beta_k = lambda * (1 - q0_k), and concentration lambda = alpha_k + beta_k.
+# Per-marker prior means q0_k are supported; the concentration (alpha + beta)
+# must be common across markers (the engine takes a scalar lambda).
+#
+# Accepts: NULL (use lambda_default, engine's uniform prior); a numeric scalar or
+# length-T vector of prior means q0 (concentration = lambda_default); or
+# list(alpha=, beta=) with scalar or length-T entries (explicit Beta).
+.hsmap_q_prior_to_engine <- function(q_prior, lambda_default, T) {
+  if (is.null(q_prior)) return(list(pi_prior = NULL, lambda = lambda_default))
+
+  hwe_cols <- function(q0) {
+    q0 <- pmin(pmax(as.numeric(q0), 1e-9), 1 - 1e-9)
+    matrix(rbind(q0^2, 2 * q0 * (1 - q0), (1 - q0)^2), nrow = 3,
+           dimnames = list(c("AA", "Aa", "aa"), NULL))
+  }
+
+  if (is.numeric(q_prior)) {
+    q0 <- if (length(q_prior) == 1L) rep(q_prior, T) else q_prior
+    if (length(q0) != T) stop("numeric `q_prior` must have length 1 or T = ", T, ".", call. = FALSE)
+    if (any(!is.finite(q0) | q0 <= 0 | q0 >= 1))
+      stop("`q_prior` means must be in (0, 1).", call. = FALSE)
+    return(list(pi_prior = hwe_cols(q0), lambda = lambda_default))
+  }
+
+  if (is.list(q_prior) && all(c("alpha", "beta") %in% names(q_prior))) {
+    a <- if (length(q_prior$alpha) == 1L) rep(as.numeric(q_prior$alpha), T) else as.numeric(q_prior$alpha)
+    b <- if (length(q_prior$beta)  == 1L) rep(as.numeric(q_prior$beta),  T) else as.numeric(q_prior$beta)
+    if (length(a) != T || length(b) != T)
+      stop("`alpha`/`beta` must have length 1 or T = ", T, ".", call. = FALSE)
+    if (any(!is.finite(a) | !is.finite(b) | a < 0 | b < 0))
+      stop("`alpha`/`beta` must be finite and non-negative.", call. = FALSE)
+    conc <- a + b
+    if (all(conc == 0)) return(list(pi_prior = hwe_cols(rep(0.5, T)), lambda = 0))  # no shrinkage
+    if (any(conc == 0))
+      stop("mixed zero / non-zero Beta concentration across markers is not supported.", call. = FALSE)
+    if (diff(range(conc)) > 1e-8 * max(conc))
+      stop("per-marker Beta concentration (alpha + beta) must be constant across markers ",
+           "in this version; vary the mean alpha/(alpha+beta) but keep alpha+beta fixed.",
+           call. = FALSE)
+    return(list(pi_prior = hwe_cols(a / conc), lambda = conc[1]))
+  }
+
+  stop("`q_prior` must be NULL, a numeric vector of prior means, or list(alpha=, beta=).",
+       call. = FALSE)
 }
