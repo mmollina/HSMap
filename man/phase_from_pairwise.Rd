@@ -55,11 +55,15 @@ For a single dam, an \code{HSMap.phased} with (among others): \code{order};
 \code{clusters} (0/1 homolog labels, meaningful only within a component);
 \code{component} (component ID per marker); \code{phase_vec} (length
 \code{T-1}; 1=coupling, 0=repulsion for resolved adjacent intervals, \code{NA}
-for unresolved ones); \code{resolved_interval}; \code{interval_support} (the
-\emph{direct} adjacent-edge phase LOD, \code{NA} if that edge is unsupported);
-\code{direct_edge} (whether the adjacent edge is itself supported); \code{resolved_via}
-(\code{"direct"}, \code{"path"}, or \code{"unresolved"} -- a path-resolved interval
-can have zero direct adjacent LOD);
+for unresolved ones); \code{resolved_interval}; \code{direct_lod} (the \emph{raw}
+finite LOD of the adjacent \eqn{(t, t+1)} edge, \code{NA} if that edge is absent or
+non-finite -- reported even when it is below threshold, and NOT to be read as the
+total support for a path-derived phase); \code{direct_supported} (whether that
+adjacent edge passes the phase-present, finite-value, tie, and threshold rules);
+\code{resolved_via} (\code{"direct"} if the phase comes from the supported adjacent
+edge, \code{"path"} if it is derived through the component -- possibly with zero
+direct adjacent LOD -- or \code{"unresolved"}); \code{interval_support} (a
+compatibility alias of \code{direct_lod});
 \code{n_components}, \code{component_sizes}; \code{unresolved_markers},
 \code{unresolved_intervals}; \code{objective}, \code{component_objective},
 \code{converged}, \code{n_flips}. Multiple dams return an

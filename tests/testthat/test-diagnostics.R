@@ -40,26 +40,36 @@ test_that("no_linkage still flags a genuine r = 0.5 regardless of tol", {
   structure(list(fit = fit, markers = markers), class = "HSMap.tpt")
 }
 
-test_that("phase metadata distinguishes direct-edge from path-based resolution", {
-  mk <- paste0("m", 1:4)
-  A <- matrix(NA_real_, 4, 4, dimnames = list(mk, mk))
-  L <- matrix(0,       4, 4, dimnames = list(mk, mk))
-  # supported edges m1-m2 and m1-m3 (coupling, LOD 5); the adjacent edge m2-m3 has a
-  # phase sign but ZERO LOD (unsupported). m4 is isolated.
-  A[1, 2] <- A[2, 1] <- 1; L[1, 2] <- L[2, 1] <- 5
-  A[1, 3] <- A[3, 1] <- 1; L[1, 3] <- L[3, 1] <- 5
-  A[2, 3] <- A[3, 2] <- 1                                  # direct m2-m3 sign present, LOD 0
+test_that("phase-support fields separate raw direct LOD, direct support, and resolution route", {
+  mk <- paste0("m", 1:5)
+  A <- matrix(NA_real_, 5, 5, dimnames = list(mk, mk))
+  L <- matrix(0,        5, 5, dimnames = list(mk, mk))
+  # a coupling star centred on m1 supports m2, m3, m4 (LOD 5, threshold 3). The adjacent
+  # edges m2-m3 (LOD 0) and m3-m4 (LOD 0.5, below threshold) carry a phase sign but are
+  # NOT supported, so those intervals resolve only through the star. m5 is isolated.
+  A[1, 2] <- A[2, 1] <- 1; L[1, 2] <- L[2, 1] <- 5          # supported
+  A[1, 3] <- A[3, 1] <- 1; L[1, 3] <- L[3, 1] <- 5          # supported
+  A[1, 4] <- A[4, 1] <- 1; L[1, 4] <- L[4, 1] <- 5          # supported
+  A[2, 3] <- A[3, 2] <- 1                                    # adjacent sign, raw LOD 0
+  A[3, 4] <- A[4, 3] <- 1; L[3, 4] <- L[4, 3] <- 0.5        # adjacent sign, raw LOD 0.5 (< 3)
   tpt <- .mk_tpt2(list(D = A), list(D = L), mk)
-  ph <- phase_from_pairwise(tpt, order = mk, dam = "D")
+  ph <- phase_from_pairwise(tpt, order = mk, dam = "D", min_phase_lod = 3)
 
-  # interval m1-m2: direct supported edge -> "direct"
-  # interval m2-m3: resolved via the path through m1 (direct LOD is 0) -> "path"
-  # interval m3-m4: m4 isolated -> "unresolved"
-  expect_identical(ph$resolved_via, c("direct", "path", "unresolved"))
-  expect_identical(ph$direct_edge,  c(TRUE, FALSE, FALSE))
-  # the path-resolved interval has zero/NA direct adjacent support but IS resolved
-  expect_true(is.na(ph$interval_support[2]) || ph$interval_support[2] == 0)
-  expect_true(ph$resolved_interval[2])
-  # a zero direct LOD is not reported as "resolved by a direct edge"
-  expect_false(ph$direct_edge[2])
+  # m1-m2 directly supported; m2-m3 path (zero direct LOD); m3-m4 path (raw LOD below
+  # threshold); m4-m5 unresolved (m5 isolated).
+  expect_identical(ph$resolved_via,     c("direct", "path", "path", "unresolved"))
+  expect_identical(ph$direct_supported, c(TRUE, FALSE, FALSE, FALSE))
+  expect_equal(ph$direct_lod, c(5, 0, 0.5, 0))              # RAW adjacent LOD, reported as-is
+  expect_identical(ph$resolved_interval, c(TRUE, TRUE, TRUE, FALSE))
+
+  # directly supported edge: raw LOD passes and phase is resolved by that edge
+  expect_true(ph$direct_supported[1] && ph$resolved_via[1] == "direct")
+  # zero direct LOD, resolved via a path -> not described as directly supported
+  expect_true(ph$direct_lod[2] == 0 && !ph$direct_supported[2] && ph$resolved_interval[2])
+  # raw direct LOD BELOW threshold -> reported (0.5) but not counted as support
+  expect_true(ph$direct_lod[3] == 0.5 && !ph$direct_supported[3] && ph$resolved_via[3] == "path")
+  # unresolved interval
+  expect_true(!ph$resolved_interval[4] && ph$resolved_via[4] == "unresolved")
+  # interval_support is a strict alias of the raw direct LOD
+  expect_identical(ph$interval_support, ph$direct_lod)
 })

@@ -40,11 +40,15 @@
 #' \code{clusters} (0/1 homolog labels, meaningful only within a component);
 #' \code{component} (component ID per marker); \code{phase_vec} (length
 #' \code{T-1}; 1=coupling, 0=repulsion for resolved adjacent intervals, \code{NA}
-#' for unresolved ones); \code{resolved_interval}; \code{interval_support} (the
-#' \emph{direct} adjacent-edge phase LOD, \code{NA} if that edge is unsupported);
-#' \code{direct_edge} (whether the adjacent edge is itself supported); \code{resolved_via}
-#' (\code{"direct"}, \code{"path"}, or \code{"unresolved"} -- a path-resolved interval
-#' can have zero direct adjacent LOD);
+#' for unresolved ones); \code{resolved_interval}; \code{direct_lod} (the \emph{raw}
+#' finite LOD of the adjacent \eqn{(t, t+1)} edge, \code{NA} if that edge is absent or
+#' non-finite -- reported even when it is below threshold, and NOT to be read as the
+#' total support for a path-derived phase); \code{direct_supported} (whether that
+#' adjacent edge passes the phase-present, finite-value, tie, and threshold rules);
+#' \code{resolved_via} (\code{"direct"} if the phase comes from the supported adjacent
+#' edge, \code{"path"} if it is derived through the component -- possibly with zero
+#' direct adjacent LOD -- or \code{"unresolved"}); \code{interval_support} (a
+#' compatibility alias of \code{direct_lod});
 #' \code{n_components}, \code{component_sizes}; \code{unresolved_markers},
 #' \code{unresolved_intervals}; \code{objective}, \code{component_objective},
 #' \code{converged}, \code{n_flips}. Multiple dams return an
@@ -175,10 +179,15 @@ phase_from_pairwise <- function(
     # direct adjacent LOD is 0/absent: `resolved_via` distinguishes the two. Do not
     # read a zero direct adjacent LOD as the total support for a path-resolved interval.
     idx2 <- if (Tn >= 2) cbind(seq_len(Tn - 1L), seq_len(Tn - 1L) + 1L) else NULL
-    isup <- if (Tn >= 2) { s <- LOD[idx2]; s[!is.finite(s)] <- NA_real_; s } else numeric(0)
-    direct_edge <- if (Tn >= 2) as.logical(Sup[idx2]) else logical(0)
+    # direct_lod: the RAW LOD of the adjacent (t, t+1) edge (NA if non-finite/absent),
+    # reported even when below threshold. direct_supported: whether that edge passes
+    # the phase-present, finite-value, tie, and threshold rules. resolved_via records
+    # whether the interval is resolved by that direct edge, indirectly via a path in
+    # the component, or not at all.
+    direct_lod <- if (Tn >= 2) { s <- LOD[idx2]; s[!is.finite(s)] <- NA_real_; s } else numeric(0)
+    direct_supported <- if (Tn >= 2) as.logical(Sup[idx2]) else logical(0)
     resolved_via <- if (Tn >= 2)
-      ifelse(!resolved, "unresolved", ifelse(direct_edge, "direct", "path")) else character(0)
+      ifelse(!resolved, "unresolved", ifelse(direct_supported, "direct", "path")) else character(0)
 
     csz <- as.integer(table(comp))
     unresolved_markers   <- o[comp %in% which(csz == 1L)]
@@ -202,9 +211,10 @@ phase_from_pairwise <- function(
       component          = as.integer(comp),
       phase_vec          = as.integer(phase_vec),
       resolved_interval  = resolved,
-      interval_support   = isup,          # DIRECT adjacent-edge phase LOD (NA if none)
-      direct_edge        = direct_edge,   # is the (t,t+1) adjacent edge itself supported?
-      resolved_via       = resolved_via,  # "direct" | "path" | "unresolved"
+      direct_lod         = direct_lod,        # raw finite LOD of the adjacent (t,t+1) edge (NA if absent)
+      direct_supported   = direct_supported,  # edge passes phase/finite/tie/threshold rules
+      resolved_via       = resolved_via,       # "direct" | "path" | "unresolved"
+      interval_support   = direct_lod,         # compatibility alias of direct_lod (raw adjacent LOD)
       n_components       = length(unique(comp)),
       component_sizes    = csz,
       unresolved_markers = unresolved_markers,
