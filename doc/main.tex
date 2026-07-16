@@ -352,7 +352,7 @@ We treat the recombination map as shared across dams by default, reflecting its 
 \[
 r_k^{(d)}=\tfrac12\{1-\exp(-2\eta^{(d)} m_k)\}.
 \]
-We compare the shared model to this scaled alternative using a goodness-of-fit statistic or a likelihood-ratio test with null hypothesis $\eta^{(d)}=1$ for all dams (one dam can be fixed to $\eta^{(d)}=1$ for identifiability). In practice, $\eta^{(d)}$ can be profiled by a one-dimensional search per dam conditional on the current $\mathbf r$.
+This is a \emph{conditional global-scale} likelihood-ratio test, and it is a global-scale contrast rather than a test of interval-specific heterogeneity: the interval \emph{shape} $m_k$ of the shared map is held fixed and only its overall length is rescaled per dam. The null allows a single \emph{common} global scale $\eta$ shared by all dams (one free parameter, estimated---not fixed to $1$), and the alternative a separate $\eta^{(d)}$ per dam ($D$ free parameters), giving a likelihood-ratio statistic on $D-1$ degrees of freedom. Each $\eta^{(d)}$ is profiled by a one-dimensional search with the shared interval shape, the per-dam linkage phase, and the per-dam paternal parameters $q_k^{(d)}$ \emph{held fixed}; the statistic is therefore conditional on the fitted phase and paternal nuisance parameters. The chi-square calibration is asymptotic; for small numbers of dams, small families, or a scale estimate at the search boundary, a parametric bootstrap should be used for a definitive $p$-value.
 
 
 \subsection{Global Phase Assembly}
@@ -360,7 +360,7 @@ We compare the shared model to this scaled alternative using a goodness-of-fit s
 
 Rather than embedding phase estimation within the HMM, which would introduce an additional latent layer and substantially complicate the EM updates, we estimate the full chromosomal phase externally in a single step. We map pairwise phase calls to signs (\(+1\) for coupling, \(-1\) for repulsion) and weight them by the corresponding LOD scores to build a symmetric, signed, LOD-weighted adjacency matrix \(J\) over markers. The optimal assignment of markers to the two maternal homologs is obtained by maximizing a LOD-weighted agreement criterion, equivalently \(\max_{x\in\{-1,+1\}^T} \sum_{i<j} J_{ij} x_i x_j\).
 
-We initialize \(x\) using the leading eigenvector of \(J\), following signed-graph spectral ideas \citep{Kunegis2010SpectralVisualization}, and fix orientation with an anchor. We then refine the solution using a greedy coordinate-ascent procedure that flips individual markers whenever this increases the objective. This yields a robust, dam-specific phase configuration \((\boldsymbol{\psi}^{(1)},\dots,\boldsymbol{\psi}^{(D)})\). A concise algorithmic description appears in Supplementary Section~\ref{sec:graph_phase}.
+The graph is built \emph{per dam} from that dam's own phase-LOD matrix (not a pooled LOD), using only supported edges (finite LOD above a support threshold). It is split into connected components; within a component we initialize \(x\) using the leading eigenvector of \(J\), following signed-graph spectral ideas \citep{Kunegis2010SpectralVisualization}, and refine with greedy coordinate ascent (a deterministic best-improvement rule). This is a \emph{heuristic} and is not guaranteed to reach the global optimum. The relative orientation of different components is unidentified: intervals crossing a component boundary are returned as \emph{unresolved} rather than forced to coupling, and a region with no supported edges is reported as unresolved rather than as a resolved phase. This yields a dam-specific phase configuration \((\boldsymbol{\psi}^{(1)},\dots,\boldsymbol{\psi}^{(D)})\) with explicit resolved/unresolved metadata. A concise algorithmic description appears in Supplementary Section~\ref{sec:graph_phase}.
 
 
 \subsection{Implementation Details}
@@ -375,7 +375,7 @@ We initialize \(x\) using the leading eigenvector of \(J\), following signed-gra
 
 \paragraph{Equivalent allele-state parameterization.} The hidden state defined above indexes the transmitted maternal homolog, so the transition matrix is phase-free and linkage phase enters only through the emission allele labels $A_k^{(d,j)}$ (Section~\ref{sec:transition}). The implementation uses a mathematically equivalent reparameterization in which the hidden state is the transmitted \emph{allele} ($a$ or $A$). Emissions then depend only on the transmitted allele and are phase-free, while the fixed allele-to-homolog labeling implied by the phase makes linkage phase enter the \emph{transition}: a nonrecombinant interval preserves the allele under coupling, so $\Pr(\text{same allele})=1-r_k$, and switches it under repulsion, so $\Pr(\text{same allele})=r_k$. The two formulations yield identical per-individual likelihoods and recombination estimates; the allele-state form avoids relabeling emissions whenever the phase changes, and homolog posteriors are recovered by a cumulative exclusive-or over repulsion intervals. Equivalently, in the M-step a recombination in interval $k$ is the homolog-index switch of Section~\ref{sec:transition}, which the allele-state code scores as an allele switch under coupling and an allele match under repulsion.
 
-\paragraph{Paternal linkage disequilibrium and pollen-pool heterogeneity (limitation).} The paternal contribution is marginalized one marker at a time: the paternal gamete alleles are treated as independent across markers (assumption $vii$), so paternal linkage disequilibrium (LD) across markers is not modeled, and the gametic $q^{(d)}$ model does not represent paternal haplotypes. When paternal LD is present, the offspring two-locus genotype distribution departs from the independent-gamete form assumed here, which can bias the paternal (pollen-pool) gametic-frequency estimates and, through them, confound maternal phase or recombination inference---most directly in the pairwise phase stage (Section~\ref{sec:tpt}), whose likelihood assumes independent paternal alleles at the two markers. That pairwise stage additionally uses a single paternal gametic frequency pooled over the included dams, so it does not model differences among dam-specific pollen pools; the multipoint model, by contrast, fits a separate $q_k^{(d)}$ per dam. The method therefore does not claim to resolve unknown-paternity structure completely; accounting for paternal LD across markers, and for pollen-pool heterogeneity in the pairwise component, is left to future work.
+\paragraph{Paternal linkage disequilibrium and pollen-pool heterogeneity (limitation).} The paternal contribution is marginalized one marker at a time: the paternal gamete alleles are treated as independent across markers (assumption $vii$), so paternal linkage disequilibrium (LD) across markers is not modeled, and the gametic $q^{(d)}$ model does not represent paternal haplotypes. When paternal LD is present, the offspring two-locus genotype distribution departs from the independent-gamete form assumed here, which can bias the paternal (pollen-pool) gametic-frequency estimates and, through them, confound maternal phase or recombination inference---most directly in the pairwise phase stage (Section~\ref{sec:tpt}), whose likelihood assumes independent paternal alleles at the two markers. Both the pairwise stage and the multipoint model estimate a separate paternal gametic frequency per dam ($p_k^{(d)}$ and $q_k^{(d)}$, respectively); neither, however, models cross-marker paternal LD. The method therefore does not claim to resolve unknown-paternity structure completely; accounting for paternal LD across markers is left to future work.
 
 \section{Supplementary Material} \label{sec:sup_mat}
 \subsection{Paternal gametic frequency: E-step and M-step} \phantomsection \label{sec:par_cont}
@@ -452,19 +452,23 @@ one-parameter model, not a separately identifiable model.
 
 \subsection{Two-Point Analysis for Pairwise Phase and Recombination Estimation}
 \label{sec:tpt}
-To initialize the multilocus HMM, we fit a two-marker model for each adjacent pair $(k,k')$ that compares the two maternal phase hypotheses and estimates a pairwise recombination fraction. We consider only dams that are double heterozygotes at these markers \(\bigl(G_k^{(d)}=G_{k'}^{(d)}=1\bigr)\). For each such dam $d$, we count the number of offspring, $C_d(a,b)$, for each two-locus genotype $(y_{ik},y_{i,k'})=(a,b)\in\{0,1,2\}^2$ (offspring with a missing call at one of the loci are accommodated by summing over the missing genotype; if both are missing there is no contribution).
+To initialize the multilocus HMM and to build the phasing graph, we fit a two-marker model for \emph{every selected marker pair} $(k,k')$ (all pairs among the selected markers, not only adjacent ones) that compares the two maternal phase hypotheses and estimates a pairwise recombination fraction. The pairwise model currently assumes \emph{zero genotyping error} (error is handled only in the multipoint HMM). We consider only dams that are double heterozygotes at these markers \(\bigl(G_k^{(d)}=G_{k'}^{(d)}=1\bigr)\). For each such dam $d$, we count the number of offspring, $C_d(a,b)$, for each two-locus genotype $(y_{ik},y_{i,k'})=(a,b)\in\{0,1,2\}^2$. Offspring with a missing call at exactly one locus are \emph{not discarded}: their contribution is the correct single-marker marginal (summing the two-locus probability over the missing genotype); an offspring missing at both loci contributes nothing. Partial (single-marker) observations enter both the reported pairwise likelihood and the estimate of the paternal frequency at the observed marker.
 
 \paragraph{Two-marker offspring genotype distribution under phase and $r_{kk'}$.}
-The probability of an offspring's two-locus genotype, $(Y_k,Y_{k'})=(y_k,y_{k'})$, depends on the maternal phase, the recombination fraction $r_{kk'}$, and the pooled paternal gametic frequencies $(p_k,p_{k'})$. We build this probability in three steps.
+The probability of an offspring's two-locus genotype, $(Y_k,Y_{k'})=(y_k,y_{k'})$, depends on the maternal phase, the recombination fraction $r_{kk'}$, and \emph{dam-specific} paternal gametic frequencies $(p_k^{(d)},p_{k'}^{(d)})$. We build this probability in three steps (the dam superscript is suppressed below).
 
 \subsubsection{Step 1: Paternal contribution at a single locus}
-Let $p_k$ be the frequency of allele $A$ among the paternal gametes at marker $k$, estimated
-\emph{pooled over the dams} included at this pair. It is the pooled analogue of the same identifiable
-paternal-gamete probability used in the multipoint model, but---because the current two-point stage
-uses a single paternal frequency for all included dams---it should not be equated with each
-dam-specific $q_k^{(d)}$ unless the paternal pools are assumed equal across dams. (This
-approximation affects only the pairwise phase initialization; the multipoint HMM fits a separate
-$q_k^{(d)}$ per dam.) Define the row vectors, listed in the order $(Y=2,\,Y=1,\,Y=0)$,
+Let $p_k^{(d)}$ be the frequency of allele $A$ among the paternal gametes of dam $d$ at marker $k$.
+It is estimated \emph{separately for each dam} (not pooled across dams), by the same identifiable
+gametic quantity used in the multipoint model: under the zero-error pairwise model an offspring
+genotype $AA$ observes one paternal $A$ transmission and $aa$ one paternal $a$ transmission (a
+heterozygous offspring is uninformative), so with a per-marker pseudocount prior
+$(\alpha_k,\beta_k)$,
+\[
+\hat p_k^{(d)} = \frac{n^{(d)}_{AA,k}+\alpha_k}{n^{(d)}_{AA,k}+n^{(d)}_{aa,k}+\alpha_k+\beta_k},
+\]
+counted over \emph{all} offspring of dam $d$ with an observed call at marker $k$ (including those
+missing at the paired marker). Define the row vectors, listed in the order $(Y=2,\,Y=1,\,Y=0)$,
 \[
 F_k^{(A)} := (\,p_k,\,1-p_k,\,0\,), \qquad
 F_k^{(a)} := (\,0,\,p_k,\,1-p_k\,).
@@ -499,16 +503,24 @@ P^{(C)}_{y_k,y_{k'}}(r_{kk'};p_k,p_{k'})
 \]
 The expression for repulsion is obtained by swapping the nonrecombinant and recombinant pairings. At $r_{kk'}=0.5$ the two phases are indistinguishable.
 
-\paragraph{Estimation and phase calls (per dam, pooled $r_{kk'}$).}
-We first obtain method-of-moments estimates for the pooled paternal gametic frequencies, $\hat p_k$ and $\hat p_{k'}$, from the marginal offspring genotype counts (pooled over the dams included at this pair). The log-likelihood for dam $d$ is
+\paragraph{Estimation and phase calls (dam-specific $p^{(d)}$ and phase; shared $r_{kk'}$).}
+The paternal frequencies $\hat p_k^{(d)}$ are estimated \emph{per dam} as above. The log-likelihood
+for dam $d$ (complete pairs contributing the two-locus term and single-marker observations the
+corresponding marginal) is
 \[
-\ell_d(r_{kk'},\phi) \;=\; \sum_{a=0}^{2}\sum_{b=0}^{2} C_d(a,b)\,\log P^{(\phi)}_{ab}(r_{kk'};\hat p_k,\hat p_{k'}).
+\ell_d(r_{kk'},\phi) \;=\; \sum_{a=0}^{2}\sum_{b=0}^{2} C_d(a,b)\,\log P^{(\phi)}_{ab}(r_{kk'};\hat p_k^{(d)},\hat p_{k'}^{(d)}) \;+\; (\text{single-marker marginal terms}).
 \]
-Crucially, phase is decided \emph{within each maternal family}. We treat phase as a dam-specific nuisance parameter and profile it out while estimating a single recombination fraction shared across dams:
+Crucially, phase is decided \emph{within each maternal family}. We treat phase as a dam-specific nuisance parameter and profile it out while estimating a single recombination fraction shared across the informative dams:
 \[
-\hat r_{kk'} \;=\; \arg\max_{\,r\in[0,0.5]}\ \sum_{d}\ \max_{\phi\in\{C,R\}}\ \ell_d(r,\phi).
+\hat r_{kk'} \;=\; \arg\max_{\,r\in[\varepsilon,\,0.5]}\ \sum_{d}\ \max_{\phi\in\{C,R\}}\ \ell_d(r,\phi),
 \]
-The maximization is one dimensional and inexpensive. Given $\hat r_{kk'}$, the final phase call for dam $d$ is
+where the search interval \emph{includes $r=0.5$ exactly} so the no-linkage null is evaluated at
+$r=0.5$ (never at $0.49$), and $r_{kk'}=0.5$ is a permitted estimate. Because this profiled
+objective is a sum over dams of a maximum of two phase-specific likelihoods it need not be unimodal;
+it is maximized by a coarse grid over $[\varepsilon,0.5]$ (including $0.5$) followed by bounded local
+refinement of the promising neighborhoods, and the LOD versus no linkage is
+$\mathrm{LOD}_r = [\ell(\hat r_{kk'})-\ell(0.5)]/\ln 10$. Phase LOD is returned \emph{separately by
+dam}. Given $\hat r_{kk'}$, the final phase call for dam $d$ is
 \[
 \hat\phi_d \;=\; \arg\max_{\phi\in\{C,R\}} \ell_d(\hat r_{kk'},\phi),
 \]
@@ -520,48 +532,75 @@ This per-dam decision avoids any exponential search over phases across dams and 
 
 \subsection{Graph-based maternal phasing from pairwise evidence} \label{sec:graph_phase}
 
-\noindent\textbf{Inputs.}
-For a given dam, let \(A\in\{0,1,\text{NA}\}^{z\times z}\) be the pairwise maternal phase matrix
-(\(1=\) coupling, \(0=\) repulsion, NA uninformative), \(W\in\mathbb{R}_{\ge 0}^{z\times z}\) the LOD matrix,
-and \(\mathcal{O}=(M_1,\ldots,M_z)\) the marker order. Choose an anchor index \(a\) and label \(\ell\in\{0,1\}\)
-to fix the global orientation.
+\noindent\textbf{Inputs (dam-specific).}
+The phasing graph is built \emph{separately for each dam} from that dam's own pairwise phase calls
+and its own phase-LOD matrix (not a pooled LOD). For a given dam let \(A\in\{0,1,\text{NA}\}^{z\times z}\)
+be the pairwise maternal phase matrix (\(1=\) coupling, \(0=\) repulsion, NA uninformative),
+\(W^{(d)}\in\mathbb{R}_{\ge 0}^{z\times z}\) that dam's phase-LOD matrix, and
+\(\mathcal{O}=(M_1,\ldots,M_z)\) the marker order.
 
 \medskip
-\noindent\textbf{Graph construction.}
-Map \(A\) to signs \(S\) with \(S_{ij}=+1\) if \(A_{ij}=1\), \(S_{ij}=-1\) if \(A_{ij}=0\), and \(S_{ij}=0\) if \(A_{ij}=\text{NA}\).
-Symmetrize \(S\) and \(W\), set diagonals to zero, and form the signed, weighted adjacency
+\noindent\textbf{Supported edges and graph.}
+An edge \((i,j)\) is \emph{supported} only when its phase sign is available, its LOD is finite, and its
+LOD strictly exceeds a support threshold \(\tau=\max(\texttt{min\_phase\_lod},\texttt{tie\_tol})\); edges
+with zero or near-tie evidence are never treated as informative. On the supported edges, map \(A\) to
+signs \(S\) (\(+1\) coupling, \(-1\) repulsion) and form the symmetric signed adjacency
+\(J=\tfrac{1}{2}(S\odot W^{(d)}+(S\odot W^{(d)})^{\top})\).
+
+\medskip
+\noindent\textbf{Connected components.}
+The supported-edge graph is split into connected components. Within each component the marker
+orientations are determined up to a single global sign, so the \emph{relative} phase of any two
+markers in the same component is identified, whereas the relative orientation of \emph{different}
+components is \textbf{unidentified}. A marker with no supported edges is its own singleton component.
+
+\medskip
+\noindent\textbf{Spectral + greedy heuristic (per component).}
+Within each component we seed \(x_i=\operatorname{sign}(v_{1,i})\) from the leading eigenvector of the
+component's \(J\), then apply greedy coordinate ascent that repeatedly flips the marker with the
+largest positive improvement \(\Delta_i=-2\,x_i\,(Jx)_i\) until no flip improves the objective beyond
+\texttt{tol} or \texttt{max\_passes} is reached (a deterministic best-improvement rule, not a random
+marker order). This is a \emph{heuristic}: it is not guaranteed to find the global optimum of the
+component's quadratic objective. Each component's first marker is sign-anchored; an optional global
+anchor fixes the sign of one chosen component.
+
+\medskip
+\noindent\textbf{Output and unresolved phase.}
+Report per-marker homolog labels (meaningful only within a component), the component index of each
+marker, and, for each adjacent interval, the phase where it is resolved:
 \[
-  J \;=\; \tfrac{1}{2}\bigl(S \odot W + (S \odot W)^{\!\top}\bigr).
+  \text{phase}[k] \;=\; \mathbb{I}[c_k=c_{k+1}] \quad\text{if } M_k, M_{k+1} \text{ share a component},
+  \qquad \text{else } \texttt{NA (unresolved)}.
 \]
-If \(J\equiv 0\), return a trivial constant phase.
-
-\medskip
-\noindent\textbf{Spectral start.}
-Compute the leading eigenvector \(v_1\) of \(J\).
-Set \(x_i=\operatorname{sign}(v_{1,i})\) (zeros map to \(+1\)).
-Flip all signs of \(x\) if needed so that the anchor \(x_a\) matches label \(\ell\).
-
-\medskip
-\noindent\textbf{Greedy refinement.}
-Iterate for a small number of passes:
-compute \(g=Jx\); visit markers in random order; for marker \(i\) compute
-\(\Delta_i=-2\,x_i\,g_i\); if \(\Delta_i>0\) flip \(x_i\) and update \(g\leftarrow g-2x_i^{\text{old}}J_{:,i}\).
-Stop when the best improvement is at most \texttt{tol} or when \texttt{max\_passes} is reached.
-
-\medskip
-\noindent\textbf{Output.}
-Report clusters \(c_i=\mathbb{I}[x_i=-1]\in\{0,1\}\).
-The adjacent phase along \(\mathcal{O}\) is
-\[
-  \text{phase}[k] \;=\; \mathbb{I}\!\bigl[c_k=c_{k+1}\bigr],
-  \quad k=1,\ldots,z-1
-\]
-with \(1=\) coupling and \(0=\) repulsion.
-Also report the objective \(\sum_{i<j} J_{ij}x_i x_j\) and a LOD-weighted agreement score with the pairwise calls.
+Intervals whose endpoints lie in different components are returned as \emph{unresolved}, not as
+coupling; a graph with no supported edges yields all-singleton components and an explicit warning,
+never a resolved all-coupling result. We also report the per-component objective, whether greedy
+refinement converged, the number of components and their sizes, and the unresolved markers and
+intervals. Because phase is a hard call fixed downstream, phase uncertainty is not propagated; this is
+a limitation.
 
 \medskip
 \noindent\textbf{Multi-dam case.}
-Apply the same procedure independently to each dam and return a named list.
+The construction is applied independently to each dam (each with its own \(W^{(d)}\)) and a named list
+is returned; the pooled LOD is retained only as an overall summary.
+
+\subsection{Blockwise multipoint fitting and map reporting} \label{sec:blocks}
+The multipoint HMM (Section~\ref{sec:param_estimation}) requires a known relative phase for every
+fitted interval, so it is fitted \emph{only within resolved phase blocks}. The marker order is split
+wherever an adjacent interval is unresolved (an unidentified relative orientation between phase
+components); phase is never imputed across such a boundary, and no recombination estimate is produced
+across it. For a single dam the split is at each unresolved interval; for a joint multi-dam map a
+conservative common-block rule splits at any interval that is unresolved for a dam carrying phase
+information there, and each block's joint fit uses only the dams whose phase is resolved throughout
+that block (the contributing dams are reported). Phase is treated as fixed within each fitted block.
+
+For map reporting, an interval whose estimated $r$ is at or near $0.5$ (no linkage), or whose phase is
+unresolved, is reported as a \emph{gap}: its map distance is \texttt{NA} and it is excluded from any
+within-block map length, so an unlinked interval never becomes a large finite centimorgan distance.
+Cumulative map positions are reported \emph{within} blocks and reset after each gap. The reported map
+length is the sum of the finite, linked interval distances within blocks; a per-interval status
+(\texttt{linked}, \texttt{no\_linkage\_boundary}, \texttt{unresolved\_phase}, \texttt{between\_blocks},
+\texttt{insufficient\_information}) accompanies the map.
 
 \bibliography{references}
 

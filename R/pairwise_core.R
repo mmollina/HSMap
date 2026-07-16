@@ -257,6 +257,9 @@ cpp_pairwise_rf <- function(G_list,
 #' @param return_input A logical value. If `TRUE`, the aligned input lists
 #'   (`G_list` and `M_list`) sent to the C++ backend are included in the output,
 #'   which is useful for debugging.
+#' @param ... Reserved for deprecated/removed arguments. Passing `r_start` or
+#'   `share_pi_across_dams` triggers a deprecation warning (they no longer have an
+#'   effect); any other unknown argument name raises an error.
 #'
 #' @return An object of class `"HSMap.tpt"`, which is a list containing:
 #' \itemize{

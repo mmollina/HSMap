@@ -65,6 +65,10 @@ matrices. Default \code{FALSE} (compact output).}
 \item{return_input}{A logical value. If \code{TRUE}, the aligned input lists
 (\code{G_list} and \code{M_list}) sent to the C++ backend are included in the output,
 which is useful for debugging.}
+
+\item{...}{Reserved for deprecated/removed arguments. Passing \code{r_start} or
+\code{share_pi_across_dams} triggers a deprecation warning (they no longer have an
+effect); any other unknown argument name raises an error.}
 }
 \value{
 An object of class \code{"HSMap.tpt"}, which is a list containing:
