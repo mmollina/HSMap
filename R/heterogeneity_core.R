@@ -44,6 +44,10 @@
 #'   value stored in the fit.
 #' @param eta_range Length-2 positive, increasing search interval for \eqn{\eta}.
 #'   Default \code{c(0.1, 10)}.
+#' @param gap_r No-linkage threshold (default \code{0.499}). The test \strong{rejects}
+#'   a map with any \code{r >= gap_r} (or non-finite \code{r}, unresolved phase, or a
+#'   non-converged fit): the global Haldane scaling is only defined for a fully
+#'   linked, resolved, converged map/block. \code{r = 0.5} is not silently replaced.
 #'
 #' @return An object of class \code{"HSMap.hetero"}: a list with \code{test_type}
 #'   (\code{"conditional global-scale LRT"}), \code{eta} (named \eqn{\hat\eta^{(d)}}),
@@ -55,7 +59,8 @@
 #'
 #' @seealso \code{\link{hmm_map_joint}}
 #' @export
-test_map_heterogeneity <- function(dat, map, epsilon = NULL, eta_range = c(0.1, 10)) {
+test_map_heterogeneity <- function(dat, map, epsilon = NULL, eta_range = c(0.1, 10),
+                                   gap_r = 0.499) {
   `%||%` <- function(a, b) if (is.null(a)) b else a
   if (!inherits(dat, "HSMap.data")) stop("`dat` must be an HSMap.data object.")
   if (!inherits(map, "HSMap.map.joint"))
@@ -64,6 +69,8 @@ test_map_heterogeneity <- function(dat, map, epsilon = NULL, eta_range = c(0.1, 
   if (!is.numeric(eta_range) || length(eta_range) != 2L ||
       eta_range[1] <= 0 || eta_range[1] >= eta_range[2])
     stop("`eta_range` must be a length-2 increasing positive interval.")
+  if (!is.numeric(gap_r) || length(gap_r) != 1L || !is.finite(gap_r) || gap_r <= 0 || gap_r > 0.5)
+    stop("`gap_r` must be a single number in (0, 0.5].")
 
   ord  <- map$order
   fit  <- map$fit
@@ -75,10 +82,26 @@ test_map_heterogeneity <- function(dat, map, epsilon = NULL, eta_range = c(0.1, 
   if (D < 2L) stop("Heterogeneity test needs at least 2 dams.")
   if (length(r) != T - 1L) stop("`map$fit$r` length must equal length(order) - 1.")
 
-  # Haldane distances of the shared map, and the scaled-r map for a given eta
-  rc <- pmin(pmax(r, 1e-9), 0.5 - 1e-9)
-  m  <- -0.5 * log(1 - 2 * rc)
-  r_scaled <- function(eta) pmin(pmax(0.5 * (1 - exp(-2 * eta * m)), 1e-9), 0.5 - 1e-9)
+  # The conditional global-scale test scales Haldane distances, which is only defined
+  # for a fully LINKED, RESOLVED, CONVERGED map. Reject anything else rather than
+  # silently transforming a no-linkage interval (r = 0.5 is NOT replaced by 0.5-eps).
+  msg_tail <- paste0(" Apply the heterogeneity test only to valid resolved, linked, ",
+                     "converged joint blocks (e.g. a single hmm_map_blocks() block).")
+  if (any(!is.finite(r)))
+    stop("`map` has non-finite recombination fractions (r).", msg_tail, call. = FALSE)
+  if (any(r >= gap_r))
+    stop("`map` contains at least one no-linkage interval (r >= gap_r = ", gap_r,
+         "); the global Haldane scaling is undefined there.", msg_tail, call. = FALSE)
+  if (!is.null(map$resolved_interval) && any(!as.logical(map$resolved_interval)))
+    stop("`map` contains unresolved-phase intervals.", msg_tail, call. = FALSE)
+  if (isFALSE(fit$converged))
+    stop("`map` was fit by an EM that did not converge (converged = FALSE).", msg_tail,
+         call. = FALSE)
+
+  # Haldane distances of the shared map (finite, since r < gap_r < 0.5). No silent
+  # clamp of r to 0.5 - eps; the scaled r stays strictly below gap_r by construction.
+  m  <- -0.5 * log(1 - 2 * r)
+  r_scaled <- function(eta) pmin(0.5 * (1 - exp(-2 * eta * m)), gap_r - 1e-9)
 
   # per-dam emission table (3 x T), aligned to the shared order
   emis_for_dam <- function(d) {

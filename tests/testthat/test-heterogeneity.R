@@ -100,3 +100,37 @@ test_that("a boundary eta estimate is flagged", {
   expect_true(het$any_boundary)
   expect_true(any(het$per_dam$at_boundary))
 })
+
+
+# Commit 3: gap-safe heterogeneity test.
+test_that("heterogeneity test accepts a valid block but rejects r=0.5 / NA / non-converged", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  set.seed(505); Tm <- 25
+  sim <- sim_multi_pop(T_markers = Tm, n_pops = 3, n_ind_per_pop = c(120, 120, 120),
+                       marker_intersection = 1, r_vec = rep(0.05, Tm - 1),
+                       phase_mode = "random", repulsion_rate = 0.3,
+                       maternal_geno_mode = "all_het",
+                       paternal_pA_base = 0.4, error_rate = 0.01, seed = 505)
+  dat <- make_dat(sim); mk <- sim$truth$markers_union
+  jm  <- hmm_map(dat, phased = oracle_multi(sim, mk), dam = "all",
+                 epsilon = 0.01, paternal_mode = "gametic", maxit = 3000)
+
+  # a valid, linked, resolved, converged joint map is accepted
+  expect_s3_class(test_map_heterogeneity(dat, jm), "HSMap.hetero")
+
+  # r at/above the no-linkage threshold is rejected (r = 0.5 is NOT silently clamped)
+  jm_gap <- jm; jm_gap$fit$r[3] <- 0.5
+  expect_error(test_map_heterogeneity(dat, jm_gap), "no-linkage")
+
+  # non-finite r is rejected
+  jm_na <- jm; jm_na$fit$r[2] <- NA_real_
+  expect_error(test_map_heterogeneity(dat, jm_na), "non-finite")
+
+  # a non-converged fit is rejected
+  jm_nc <- jm; jm_nc$fit$converged <- FALSE
+  expect_error(test_map_heterogeneity(dat, jm_nc), "did not converge")
+
+  # unresolved-phase metadata is rejected
+  jm_up <- jm; jm_up$resolved_interval <- c(FALSE, rep(TRUE, Tm - 2))
+  expect_error(test_map_heterogeneity(dat, jm_up), "unresolved")
+})

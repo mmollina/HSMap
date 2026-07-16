@@ -4,7 +4,13 @@
 \alias{test_map_heterogeneity}
 \title{Conditional global-scale test for map heterogeneity across dams}
 \usage{
-test_map_heterogeneity(dat, map, epsilon = NULL, eta_range = c(0.1, 10))
+test_map_heterogeneity(
+  dat,
+  map,
+  epsilon = NULL,
+  eta_range = c(0.1, 10),
+  gap_r = 0.499
+)
 }
 \arguments{
 \item{dat}{An \code{HSMap.data} object.}
@@ -16,6 +22,11 @@ value stored in the fit.}
 
 \item{eta_range}{Length-2 positive, increasing search interval for \eqn{\eta}.
 Default \code{c(0.1, 10)}.}
+
+\item{gap_r}{No-linkage threshold (default \code{0.499}). The test \strong{rejects}
+a map with any \code{r >= gap_r} (or non-finite \code{r}, unresolved phase, or a
+non-converged fit): the global Haldane scaling is only defined for a fully
+linked, resolved, converged map/block. \code{r = 0.5} is not silently replaced.}
 }
 \value{
 An object of class \code{"HSMap.hetero"}: a list with \code{test_type}
