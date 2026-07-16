@@ -202,8 +202,9 @@ penalized (maximum-a-posteriori) update
 \[
 \hat q_k=\frac{N_{A,k}+\alpha_k}{N_{A,k}+N_{a,k}+\alpha_k+\beta_k},
 \]
-where $N_{A,k}$ and $N_{a,k}$ are the expected paternal $A$- and $a$-gamete counts at marker $k$
-(Section~\ref{sec:par_cont}); it maximizes
+where $N_{A,k}$ and $N_{a,k}$ are the \emph{direct} expected transmitted-paternal-gamete counts at
+marker $k$---accumulated as posterior gamete responsibilities, not obtained from latent diploid
+paternal-genotype counts (Section~\ref{sec:par_cont}); it maximizes
 $\log\mathcal{L}+\sum_k\bigl[\alpha_k\log q_k+\beta_k\log(1-q_k)\bigr]$. Here $\alpha_k$ and
 $\beta_k$ are pseudocounts, so the equivalent probability prior is
 $\mathrm{Beta}(\alpha_k+1,\beta_k+1)$ and the update is its posterior mode;
@@ -410,14 +411,17 @@ with the emission normalized \emph{per maternal state}, is
 which sum to \(1\) at observed loci. A maternal state \(j\) contributes only when both
 \(\gamma_k^{(i,d)}(j)>0\) and \(b_k^{(i)}(j)>0\), so an impossible state at zero genotyping error is
 skipped rather than dividing by zero. Missing calls (\(y_{ik}=\varnothing\)) contribute no gamete
-count. Summing over the offspring \emph{of dam \(d\)} gives the dam-specific expected paternal
-\(A\)- and \(a\)-gamete counts
+count. Summing these \emph{direct} transmitted-gamete responsibilities over the offspring
+\emph{of dam \(d\)} gives the dam-specific expected transmitted-paternal-gamete counts
 \[
 N_{A,k}^{(d)}=\sum_{i\,\in\,\text{family }d}\rho_{A,k}^{(i,d)},\qquad
 N_{a,k}^{(d)}=\sum_{i\,\in\,\text{family }d}\rho_{a,k}^{(i,d)}.
 \]
-These paternal gamete counts are \emph{not} pooled across dams---unlike the recombination counts,
-which are pooled because \(\mathbf r\) is shared.
+These are transmitted-gamete counts accumulated \emph{directly} from the per-maternal-state
+normalized responsibilities above; they are not derived from latent diploid paternal-genotype
+counts (which, carrying two alleles per genotype, would give the pseudocount prior about twice its
+nominal weight). The paternal gamete counts are \emph{not} pooled across dams---unlike the
+recombination counts, which are pooled because \(\mathbf r\) is shared.
 
 \paragraph{M-step: penalized (MAP) update (per dam).}
 With a per-marker, per-dam pseudocount prior \((\alpha_k^{(d)},\beta_k^{(d)})\),
