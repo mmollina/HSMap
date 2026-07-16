@@ -235,13 +235,18 @@ hmm_map_blocks <- function(x, phased, ..., min_block_markers = 2L, gap_r = 0.499
 #' @param map.function Distance function, one of \code{"haldane"}, \code{"kosambi"},
 #'   \code{"morgan"}.
 #' @param gap_r Optional override of the no-linkage threshold; defaults to the value
-#'   stored on \code{x}. Intervals with fitted \code{r >= gap_r} are gaps.
+#'   stored on \code{x} (validated even when no block was fitted). When supplied, the
+#'   within-block interval statuses, distances, positions, and gap counts are
+#'   \strong{recomputed} under this threshold rather than reusing the stored ones.
+#'   A fitted \code{r >= gap_r} inside a phase block starts a new map \emph{segment}.
 #'
-#' @return A list with: \code{positions} (data frame: \code{marker}, \code{block},
-#'   within-block \code{pos}); \code{interval_table} (\code{from}, \code{to},
-#'   \code{block}, \code{status}, \code{r}, \code{dist_cM}); \code{block_lengths};
-#'   \code{total_linked_length}; \code{n_gaps}; \code{gap_intervals};
-#'   \code{map.function}; \code{gap_r}.
+#' @return A list with: \code{positions} (data frame: \code{marker},
+#'   \code{phase_block}, \code{segment}, within-\emph{segment} \code{pos});
+#'   \code{interval_table} (\code{from}, \code{to}, \code{block}, \code{status}
+#'   recomputed under the effective \code{gap_r}, \code{r}, \code{dist_cM});
+#'   \code{segment_lengths}; \code{block_lengths}; \code{total_linked_length};
+#'   \code{n_segments}; \code{n_gaps}; \code{gap_intervals}; \code{map.function};
+#'   \code{gap_r}.
 #' @seealso [hmm_map_blocks()], [get_map()], [plot_block_map()]
 #' @export
 get_block_map <- function(x, map.function = c("haldane", "kosambi", "morgan"),
@@ -249,36 +254,51 @@ get_block_map <- function(x, map.function = c("haldane", "kosambi", "morgan"),
   if (!inherits(x, "HSMap.map.blocks")) stop("`x` must be an HSMap.map.blocks object.")
   map.function <- match.arg(map.function)
   gr <- if (is.null(gap_r)) (x$gap_r %||% 0.499) else gap_r
+  # gap_r is validated even when there is no fitted block.
+  if (!is.numeric(gr) || length(gr) != 1L || !is.finite(gr) || gr <= 0 || gr > 0.5)
+    stop("`gap_r` must be a single number in (0, 0.5].")
   mf <- switch(map.function, haldane = inv_haldane, kosambi = inv_kosambi, morgan = inv_morgan)
 
-  positions <- list(); block_lengths <- numeric(length(x$blocks))
-  for (b in seq_along(x$blocks)) {
-    blk <- x$blocks[[b]]
-    if (is.null(blk$fit) || length(blk$markers) < 2L) {
-      block_lengths[b] <- 0
-      positions[[b]] <- data.frame(marker = blk$markers, block = b,
-                                   pos = if (length(blk$markers)) rep(0, length(blk$markers)) else numeric(0),
-                                   stringsAsFactors = FALSE)
-      next
-    }
-    pos <- get_map(blk$fit, map.function, gap_r = gr)
-    positions[[b]] <- data.frame(marker = names(pos), block = b, pos = as.numeric(pos),
-                                 stringsAsFactors = FALSE)
-    block_lengths[b] <- attr(pos, "total_linked_length")
-  }
-  pos_df <- if (length(positions)) do.call(rbind, positions) else
-    data.frame(marker = character(0), block = integer(0), pos = numeric(0))
-
+  ord <- x$order; Tm <- length(ord); Ti <- max(Tm - 1L, 0L)
   itab <- x$interval_table
+
+  # Recompute WITHIN-block statuses under the EFFECTIVE gap_r (do not reuse a status
+  # produced under a different stored threshold). Phase-boundary statuses
+  # (unresolved_phase / between_blocks) are threshold-independent and preserved.
+  wb <- itab$status %in% c("linked", "no_linkage_boundary", "insufficient_information")
+  itab$status[wb] <- ifelse(is.na(itab$r[wb]), "insufficient_information",
+                     ifelse(itab$r[wb] >= gr, "no_linkage_boundary", "linked"))
   itab$dist_cM <- ifelse(itab$status == "linked" & is.finite(itab$r), mf(itab$r), NA_real_)
 
+  # A map SEGMENT resets at any gap interval (phase boundary OR a fitted no-linkage
+  # boundary inside a phase block); within-segment positions reset to 0.
+  phase_block <- as.integer(x$block_id)
+  segment <- integer(Tm); wpos <- numeric(Tm)
+  if (Tm >= 1L) { segment[1] <- 1L; wpos[1] <- 0 }
+  status <- itab$status
+  for (t in seq_len(Ti)) {
+    if (identical(status[t], "linked")) {
+      segment[t + 1L] <- segment[t]; wpos[t + 1L] <- wpos[t] + itab$dist_cM[t]
+    } else {
+      segment[t + 1L] <- segment[t] + 1L; wpos[t + 1L] <- 0
+    }
+  }
+  positions <- data.frame(marker = ord, phase_block = phase_block, segment = segment,
+                          pos = wpos, stringsAsFactors = FALSE)
+  seg_of_iv <- if (Ti) segment[seq_len(Ti)] else integer(0)
+  blk_of_iv <- if (Ti) phase_block[seq_len(Ti)] else integer(0)
+  seg_len <- if (Ti) as.numeric(tapply(itab$dist_cM, seg_of_iv, function(z) sum(z, na.rm = TRUE))) else numeric(0)
+  blk_len <- if (Ti) as.numeric(tapply(itab$dist_cM, blk_of_iv, function(z) sum(z, na.rm = TRUE))) else numeric(0)
+
   list(
-    positions           = pos_df,
-    interval_table      = itab,
-    block_lengths       = block_lengths,
-    total_linked_length = sum(block_lengths),
-    n_gaps              = sum(itab$status != "linked"),
-    gap_intervals       = which(itab$status != "linked"),
+    positions           = positions,   # marker, phase_block, segment, within-segment pos
+    interval_table      = itab,        # status/dist recomputed under the effective gap_r
+    segment_lengths     = seg_len,
+    block_lengths       = blk_len,
+    total_linked_length = sum(itab$dist_cM, na.rm = TRUE),
+    n_segments          = if (Tm) max(segment) else 0L,
+    n_gaps              = sum(status != "linked"),
+    gap_intervals       = which(status != "linked"),
     map.function        = map.function,
     gap_r               = gr
   )
@@ -294,23 +314,27 @@ get_block_map <- function(x, map.function = c("haldane", "kosambi", "morgan"),
 #'
 #' @param x An \code{HSMap.map.blocks} object.
 #' @param map.function Distance function; see [get_block_map()].
-#' @return A \pkg{ggplot2} object (one panel per block).
+#' @param gap_r Optional override of the no-linkage threshold (see [get_block_map()]).
+#' @return A \pkg{ggplot2} object (one panel per map \emph{segment}).
 #' @seealso [get_block_map()]
 #' @export
-plot_block_map <- function(x, map.function = c("haldane", "kosambi", "morgan")) {
+plot_block_map <- function(x, map.function = c("haldane", "kosambi", "morgan"), gap_r = NULL) {
   map.function <- match.arg(map.function)
-  bm <- get_block_map(x, map.function)
+  bm <- get_block_map(x, map.function, gap_r = gap_r)
   df <- bm$positions
   if (!nrow(df)) stop("No markers to plot.")
-  df$block <- factor(df$block)
+  # Facet by SEGMENT so within-segment positions (which reset after every gap,
+  # including a fitted no-linkage boundary inside a phase block) are never overlaid.
+  df$segment <- factor(df$segment)
   ggplot2::ggplot(df, ggplot2::aes(x = pos, y = 0)) +
-    ggplot2::geom_line(ggplot2::aes(group = block), colour = "grey60") +
+    ggplot2::geom_line(ggplot2::aes(group = segment), colour = "grey60") +
     ggplot2::geom_point(size = 1.6, colour = "#00AFBB") +
-    ggplot2::facet_wrap(~ block, scales = "free_x", ncol = 1,
-                        labeller = ggplot2::labeller(.default = function(v) paste0("block ", v))) +
-    ggplot2::labs(x = sprintf("Within-block position (cM, %s)", bm$map.function), y = NULL,
-                  title = sprintf("Blockwise map: %d block(s), %d gap(s), total linked %.1f cM",
-                                  length(bm$block_lengths), bm$n_gaps, bm$total_linked_length)) +
+    ggplot2::facet_wrap(~ segment, scales = "free_x", ncol = 1,
+                        labeller = ggplot2::labeller(.default = function(v) paste0("segment ", v))) +
+    ggplot2::labs(x = sprintf("Within-segment position (cM, %s)", bm$map.function), y = NULL,
+                  title = sprintf("Blockwise map: %d block(s), %d segment(s), %d gap(s), total linked %.1f cM",
+                                  x$n_blocks %||% length(unique(df$phase_block)), bm$n_segments,
+                                  bm$n_gaps, bm$total_linked_length)) +
     ggplot2::theme_minimal(11) +
     ggplot2::theme(axis.text.y = ggplot2::element_blank(),
                    axis.ticks.y = ggplot2::element_blank())

@@ -17,14 +17,19 @@ get_block_map(
 \code{"morgan"}.}
 
 \item{gap_r}{Optional override of the no-linkage threshold; defaults to the value
-stored on \code{x}. Intervals with fitted \code{r >= gap_r} are gaps.}
+stored on \code{x} (validated even when no block was fitted). When supplied, the
+within-block interval statuses, distances, positions, and gap counts are
+\strong{recomputed} under this threshold rather than reusing the stored ones.
+A fitted \code{r >= gap_r} inside a phase block starts a new map \emph{segment}.}
 }
 \value{
-A list with: \code{positions} (data frame: \code{marker}, \code{block},
-within-block \code{pos}); \code{interval_table} (\code{from}, \code{to},
-\code{block}, \code{status}, \code{r}, \code{dist_cM}); \code{block_lengths};
-\code{total_linked_length}; \code{n_gaps}; \code{gap_intervals};
-\code{map.function}; \code{gap_r}.
+A list with: \code{positions} (data frame: \code{marker},
+\code{phase_block}, \code{segment}, within-\emph{segment} \code{pos});
+\code{interval_table} (\code{from}, \code{to}, \code{block}, \code{status}
+recomputed under the effective \code{gap_r}, \code{r}, \code{dist_cM});
+\code{segment_lengths}; \code{block_lengths}; \code{total_linked_length};
+\code{n_segments}; \code{n_gaps}; \code{gap_intervals}; \code{map.function};
+\code{gap_r}.
 }
 \description{
 Extract marker positions, interval distances and statuses, per-block lengths, the

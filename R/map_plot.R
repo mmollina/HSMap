@@ -54,6 +54,18 @@ plot_map_list <- function(x,
   # Positions for each map
   pos_list <- lapply(obj_list, get_map, map.function = map.function)
 
+  # Gap-safe: this continuous plot must not draw reset (within-block) positions as a
+  # single linkage group. If any map has gap intervals (no linkage / unresolved
+  # phase), stop and direct the user to the segment-aware plot.
+  n_gaps <- vapply(pos_list, function(p) {
+    g <- attr(p, "n_gaps"); if (is.null(g)) 0L else as.integer(g)
+  }, integer(1))
+  if (any(n_gaps > 0L))
+    stop("At least one map contains gap intervals (no-linkage or unresolved phase); ",
+         "plot_map_list() would draw the reset within-block positions as one continuous ",
+         "linkage group. Use plot_block_map() / get_block_map() for a gap-aware summary.",
+         call. = FALSE)
+
   # Basic sanity checks on positions
   lens <- vapply(pos_list, length, integer(1))
   if (any(lens == 0L)) stop("At least one map has zero markers after transformation.", call. = FALSE)
