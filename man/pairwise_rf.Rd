@@ -15,6 +15,7 @@ pairwise_rf(
   tol = 1e-06,
   maxit = 200,
   tiny = 1e-12,
+  return_diagnostics = FALSE,
   return_input = FALSE
 )
 }
@@ -38,21 +39,27 @@ null, generic labels (\code{"Pop1"}, \code{"Pop2"}, etc.) are created.}
 \item{threads}{An integer specifying the number of parallel threads to use.
 If \code{NULL}, \pkg{RcppParallel} uses its default setting.}
 
-\item{lambda}{A numeric scalar for the pseudo-count weight used in likelihood
-regularization. See the \emph{Regularization} section for details. Default is \code{20}.}
+\item{lambda}{A numeric scalar for the pseudo-count weight used in \code{q}
+regularization. Default \code{20}, \strong{retained for backward compatibility only};
+this value has \strong{not} been selected through a formal sensitivity study and may
+change once one is available. See the \emph{Regularization} section.}
 
 \item{q0}{Numeric prior target (in \verb{[0, 1]}) for the dam-specific paternal
 gametic frequencies \eqn{q_k^{(d)}}: the value each \code{q} is shrunk toward, via
 pseudocounts \code{alpha = lambda * q0} and \code{beta = lambda * (1 - q0)}. Default \code{0.5}.}
 
-\item{tol}{Numeric tolerance for the golden-section search algorithm.
+\item{tol}{Numeric tolerance for the r optimizer's bounded local refinement.
 Default is \code{1e-6}.}
 
-\item{maxit}{The maximum number of iterations for the golden-section search.
+\item{maxit}{The maximum number of iterations for the local refinement.
 Default is \code{200}.}
 
 \item{tiny}{A small numeric floor to prevent \code{log(0)} errors in the likelihood
 calculation. Default is \code{1e-12}.}
+
+\item{return_diagnostics}{A logical value. If \code{TRUE}, the returned \code{fit}
+includes a \code{diagnostics} list of per-pair optimizer and missing-data count
+matrices. Default \code{FALSE} (compact output).}
 
 \item{return_input}{A logical value. If \code{TRUE}, the aligned input lists
 (\code{G_list} and \code{M_list}) sent to the C++ backend are included in the output,
