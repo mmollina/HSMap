@@ -23,7 +23,7 @@
 \subsection{Overview}
 We infer maternal recombination and linkage phase in diploid half-sib families with multiple dams and unknown sires. For each dam, transmission along an ordered marker set is modeled with a maternal-only hidden Markov model. The hidden chain identifies which maternal homolog is transmitted, transitions reflect recombination between adjacent markers, and emissions link the hidden homolog to observed offspring genotypes while averaging over the unknown paternal contribution.
 
-We model inheritance along ordered markers with a hidden Markov model (HMM), where the latent state at marker $t$ encodes which maternal homolog was transmitted to each offspring. Transitions between states are governed by the recombination fractions between adjacent markers, and emissions are the offspring genotype likelihoods given the transmitted maternal homolog and a per-dam error model. Parameters are estimated by maximum likelihood using forward and backward recursions with per-position scaling \citep{Rabiner1989}. To avoid introducing an additional latent layer for phase, we infer each dam’s chromosomal phase externally and hold it fixed during HMM fitting. When several dams are analyzed together, we fit one recombination map across families, while phase and emissions remain dam specific. Pooling families in a single framework increases effective sample size for estimating recombination and improves precision, especially when individual families are small.
+We model inheritance along ordered markers with a hidden Markov model (HMM), where the latent state at marker $t$ encodes which maternal homolog was transmitted to each offspring. Transitions between states are governed by the recombination fractions between adjacent markers, and emissions are the offspring genotype likelihoods given the transmitted maternal homolog and a single scalar genotyping error rate (not a per-dam or per-marker error model). Parameters are estimated by maximum likelihood using forward and backward recursions with per-position scaling \citep{Rabiner1989}. To avoid introducing an additional latent layer for phase, we infer each dam’s chromosomal phase externally and hold it fixed during HMM fitting. When several dams are analyzed together, we fit one recombination map across families, while phase and emissions remain dam specific. Pooling families in a single framework increases effective sample size for estimating recombination and improves precision, especially when individual families are small.
 
 
 We work under the following minimal assumptions: ($i$) the marker order is fixed; ($ii$) meioses are independent across offspring; ($iii$) a single female recombination map is shared across dams; ($iv$) genotyping errors are independent across loci and individuals; ($v$) allele transmission follows Mendelian segregation without distortion; ($vi$) for each dam $d$, the paternal contribution enters the offspring likelihood only through a single per-marker, dam-specific \emph{paternal gametic frequency} $q_k^{(d)}=\Pr(\text{a paternal gamete contributing to an offspring of dam }d\text{ transmits allele }A)$; in an open-pollinated family this is generally a dam-specific pollen-pool probability that may average over several unknown sires, rather than the allele frequency of a single sire, and each $q_k^{(d)}$ is a parameter estimated in the EM (detailed later); and ($vii$) at each marker the paternal gamete allele is marginalized conditional on $q_k^{(d)}$, \emph{independently across markers}, i.e.\ paternal linkage disequilibrium across markers is not modeled.
@@ -223,7 +223,7 @@ over-shrink $q_k$ at extreme paternal gametic frequencies.
 \paragraph{Overview}
 We introduce an HMM for estimating recombination fractions \(\mathbf{r}\) along an ordered set of \(z\) markers, conditional on a known maternal linkage phase across the sequence. In principle one could search over all phase configurations and select the one that maximizes the multilocus likelihood. For \(z\) markers this requires evaluating \(2^{\,z-1}\) configurations, which is computationally infeasible even for modest \(z\).
 
-To avoid exhaustive search, we use a two-step strategy. First, we perform a pairwise analysis that identifies, for each dam and for each adjacent marker pair, the most likely phase state (coupling or repulsion). We present the HMM conditional on a fixed phase for a sequence of \(z\) markers, then specialize to the case \(z=2\) to obtain a two-marker formulation. This specialization yields a simplification in which the two-marker likelihood derived from the HMM can be written as a multinomial model on genotype-class counts, leading to fast estimation and a natural LOD score for coupling versus repulsion (see Supplementary Section~\ref{sec:tpt}).
+To avoid exhaustive search, we use a two-step strategy. First, we perform a pairwise analysis that identifies, for each dam and for every selected marker pair (all pairs among the selected markers, not only adjacent ones), the most likely phase state (coupling or repulsion). We present the HMM conditional on a fixed phase for a sequence of \(z\) markers, then specialize to the case \(z=2\) to obtain a two-marker formulation. This specialization yields a simplification in which the two-marker likelihood derived from the HMM can be written as a multinomial model on genotype-class counts, leading to fast estimation and a natural LOD score for coupling versus repulsion (see Supplementary Section~\ref{sec:tpt}).
 
 This step produces, for each dam, a complete matrix of pairwise phase calls and corresponding LOD scores. These are then supplied to the algorithm presented in Section~\ref{sec:global_phase_assembly} procedure, which resolves local conflicts and returns a single globally consistent phase configuration for each dam. The output is a fixed phase array.
 \[
@@ -335,7 +335,7 @@ The M-step updates the recombination fractions by treating these expected counts
 \begin{equation}
     \hat{r}_k^{(t+1)} = \frac{N_{\text{rec},k}}{N_{\text{total},k}} = \frac{\text{Expected recombinations}}{\text{Total expected meioses}}.
 \end{equation}
-For numerical stability, we enforce the box constraint $r_k \in [\varepsilon, 0.5-\varepsilon]$ for a small $\varepsilon > 0$. The E- and M-steps are alternated until the log-likelihood of the data converges (i.e., the increase between iterations falls below a predefined tolerance). The final parameter vector $\hat{\mathbf{r}}$ is the maximum likelihood estimate. The final recombination fractions can be converted to map distances in centimorgans (cM) using a mapping function, such as Haldane's or Kosambi's.
+The estimation range is $r_k\in[\varepsilon,0.5]$ for a small $\varepsilon>0$: the M-step ratio is bounded above by the no-linkage value $0.5$ (enforced only by a numerical cap just below $0.5$), which is a \emph{permitted} estimate denoting no linkage; $r_k$ is \emph{not} constrained to lie strictly below $0.5$. An interval estimated at (or numerically at) $0.5$ is reported as a \emph{gap} in the map output---its map distance is \texttt{NA} and it is excluded from any map length (Section~\ref{sec:blocks})---rather than as a large finite distance. The E- and M-steps are alternated until the \emph{active objective} and the identifiable parameters $\mathbf r$ and $q$ are stable (see the Convergence and Decoding paragraph under Implementation Details), or a maximum iteration count is reached. The final parameter vector $\hat{\mathbf{r}}$ is a \emph{conditional} maximum-likelihood estimate, given the fixed linkage phase and the paternal gametic frequencies. The final recombination fractions can be converted to map distances in centimorgans (cM) using a mapping function, such as Haldane's or Kosambi's.
 \paragraph{Paternal updates within the EM loop.}
 The emission probabilities in Eqs.~\eqref{eq:emis-average}–\eqref{eq:emission-error} depend on the
 dam-specific paternal gametic frequencies $\{q_k^{(d)}\}$. Each EM iteration proceeds as follows,
@@ -352,13 +352,16 @@ We treat the recombination map as shared across dams by default, reflecting its 
 \[
 r_k^{(d)}=\tfrac12\{1-\exp(-2\eta^{(d)} m_k)\}.
 \]
+This biological scaling is bounded only by the no-linkage value $0.5$ (approached as
+$\eta^{(d)} m_k\to\infty$) and is \emph{not} capped at the map-reporting gap threshold; for
+$\eta^{(d)}>1$ a scaled $r_k^{(d)}$ may exceed that reporting threshold while remaining below $0.5$.
 This is a \emph{conditional global-scale} likelihood-ratio test, and it is a global-scale contrast rather than a test of interval-specific heterogeneity: the interval \emph{shape} $m_k$ of the shared map is held fixed and only its overall length is rescaled per dam. The null allows a single \emph{common} global scale $\eta$ shared by all dams (one free parameter, estimated---not fixed to $1$), and the alternative a separate $\eta^{(d)}$ per dam ($D$ free parameters), giving a likelihood-ratio statistic on $D-1$ degrees of freedom. Each $\eta^{(d)}$ is profiled by a one-dimensional search with the shared interval shape, the per-dam linkage phase, and the per-dam paternal parameters $q_k^{(d)}$ \emph{held fixed}; the statistic is therefore conditional on the fitted phase and paternal nuisance parameters. The chi-square calibration is asymptotic; for small numbers of dams, small families, or a scale estimate at the search boundary, a parametric bootstrap should be used for a definitive $p$-value.
 
 
 \subsection{Global Phase Assembly}
 \label{sec:global_phase_assembly}
 
-Rather than embedding phase estimation within the HMM, which would introduce an additional latent layer and substantially complicate the EM updates, we estimate the full chromosomal phase externally in a single step. We map pairwise phase calls to signs (\(+1\) for coupling, \(-1\) for repulsion) and weight them by the corresponding LOD scores to build a symmetric, signed, LOD-weighted adjacency matrix \(J\) over markers. The optimal assignment of markers to the two maternal homologs is obtained by maximizing a LOD-weighted agreement criterion, equivalently \(\max_{x\in\{-1,+1\}^T} \sum_{i<j} J_{ij} x_i x_j\).
+Rather than embedding phase estimation within the HMM, which would introduce an additional latent layer and substantially complicate the EM updates, we estimate the full chromosomal phase externally in a single step. We map pairwise phase calls to signs (\(+1\) for coupling, \(-1\) for repulsion) and weight them by the corresponding LOD scores to build a symmetric, signed, LOD-weighted adjacency matrix \(J\) over markers. We seek the assignment of markers to the two maternal homologs that maximizes a LOD-weighted agreement criterion, equivalently \(\max_{x\in\{-1,+1\}^T} \sum_{i<j} J_{ij} x_i x_j\). This combinatorial graph objective is \emph{approximately} optimized---by a spectral initialization followed by greedy coordinate ascent (below)---rather than solved exactly; the procedure is a heuristic and is not guaranteed to reach the global optimum.
 
 The graph is built \emph{per dam} from that dam's own phase-LOD matrix (not a pooled LOD), using only supported edges (finite LOD above a support threshold). It is split into connected components; within a component we initialize \(x\) using the leading eigenvector of \(J\), following signed-graph spectral ideas \citep{Kunegis2010SpectralVisualization}, and refine with greedy coordinate ascent (a deterministic best-improvement rule). This is a \emph{heuristic} and is not guaranteed to reach the global optimum. The relative orientation of different components is unidentified: intervals crossing a component boundary are returned as \emph{unresolved} rather than forced to coupling, and a region with no supported edges is reported as unresolved rather than as a resolved phase. This yields a dam-specific phase configuration \((\boldsymbol{\psi}^{(1)},\dots,\boldsymbol{\psi}^{(D)})\) with explicit resolved/unresolved metadata. A concise algorithmic description appears in Supplementary Section~\ref{sec:graph_phase}.
 
@@ -367,7 +370,7 @@ The graph is built \emph{per dam} from that dam's own phase-LOD matrix (not a po
 
 \paragraph{GitHub repository:} \url{https://github.com/mmollina/HSMap}
 
-\paragraph{Initialization and Constraints:} We use an uninformative prior for the initial hidden states at the left boundary (uniform prior $\,\Pr(S_{i1}=1)=\Pr(S_{i1}=2)=\tfrac12$). Recombination fractions are initialized uniformly (e.g., $r_k=0.1$) and are constrained to the interval $[\varepsilon, 0.5-\varepsilon]$ during optimization for a small $\varepsilon > 0$. Each dam-specific paternal gametic frequency $q_k^{(d)}$ is initialized at $0.5$; the default total pseudocount is $\lambda=20$ (i.e.\ $\alpha_k=\beta_k=10$, pseudocount target $q^{(0)}_k=0.5$), retained for backward compatibility only and not a statistically validated recommendation (Section~\ref{sec:par_cont}).
+\paragraph{Initialization and Constraints:} We use an uninformative prior for the initial hidden states at the left boundary (uniform prior $\,\Pr(S_{i1}=1)=\Pr(S_{i1}=2)=\tfrac12$). Recombination fractions are initialized uniformly (e.g., $r_k=0.1$) and are estimated over the interval $[\varepsilon, 0.5]$ during optimization for a small $\varepsilon > 0$ (numerically capped just below $0.5$; $r_k=0.5$ is permitted and denotes no linkage, reported as a gap). Each dam-specific paternal gametic frequency $q_k^{(d)}$ is initialized at $0.5$; the default total pseudocount is $\lambda=20$ (i.e.\ $\alpha_k=\beta_k=10$, pseudocount target $q^{(0)}_k=0.5$), retained for backward compatibility only and not a statistically validated recommendation (Section~\ref{sec:par_cont}).
 
 \paragraph{Convergence and Decoding:} The EM algorithm is run until (i) the relative change in the \emph{active objective}---the observed-data log-likelihood when $\lambda=0$, or the penalized objective (observed-data log-likelihood plus the $q$ pseudocount penalty) when $\lambda>0$---falls below a tolerance of $10^{-6}$, \emph{and} (ii) the maximum change in the identifiable parameters $\mathbf r$ and $q$ is below the same tolerance; or until a maximum number of iterations is reached (default $1000$; the wrapper warns on non-convergence). Convergence is \emph{not} gated on movement along the non-identifiable paternal genotype decomposition. The reported log-likelihood is evaluated at the final returned parameters (after the last M-step). The recombination fractions are conditional maximum-likelihood estimates in $[\varepsilon, 0.5]$ (with $r=0.5$ permitted when the data indicate no linkage), whereas each $q_k^{(d)}$ is a penalized/maximum-a-posteriori estimate when $\lambda>0$ and an unpenalized maximum-likelihood estimate when $\lambda=0$. The emission error rate is a single user-specified scalar $\varepsilon$; the model does not fit a per-dam or per-marker error rate. After convergence, the final model parameters can be used to decode the maternal transmissions for each offspring. The Viterbi algorithm can be used to find the single most probable inheritance path, while the posterior probabilities ($\gamma_k(j)$) provide the probability of inheriting from each homolog at each locus. These decoded paths are valuable for downstream analyses, such as identifying specific crossover locations, error checking or quantitative trait loci (QTL) analysis.
 
@@ -578,11 +581,15 @@ Intervals whose endpoints lie in different components are returned as \emph{unre
 coupling; a graph with no supported edges yields all-singleton components and an explicit warning,
 never a resolved all-coupling result. We also report the per-component objective, whether greedy
 refinement converged, the number of components and their sizes, and the unresolved markers and
-intervals. A resolved adjacent interval is resolved either \emph{directly}---its own $(t,t{+}1)$
-supported edge---or \emph{indirectly, through a path} within its connected component; the reported
-per-interval support is the \emph{direct} adjacent-edge LOD, which may be zero for a path-resolved
-interval, and a \texttt{resolved\_via} field records ``direct'', ``path'', or ``unresolved''. A zero
-direct adjacent LOD is therefore not read as the total support for a path-resolved interval. Because
+intervals. A resolved adjacent interval is resolved either \emph{directly}---through its own $(t,t{+}1)$
+supported edge---or \emph{indirectly, through a path} within its connected component. Each interval
+reports \texttt{direct\_lod}, the \emph{raw} finite LOD of the adjacent $(t,t{+}1)$ edge
+(\texttt{NA} when that edge is absent or non-finite), which may be zero or below threshold for a
+path-resolved interval; \texttt{direct\_supported}, whether that adjacent edge passes the phase,
+finite-value, tie, and threshold rules; and \texttt{resolved\_via}, recording ``direct'', ``path'',
+or ``unresolved''. The field \texttt{interval\_support} is retained as a strict alias of
+\texttt{direct\_lod}. A raw \texttt{direct\_lod} that is zero or below threshold is therefore
+\emph{not} read as the total support for a path-resolved interval. Because
 phase is a hard call fixed downstream, phase uncertainty is not propagated; this is a limitation.
 
 \medskip
@@ -595,15 +602,24 @@ The multipoint HMM (Section~\ref{sec:param_estimation}) requires a known relativ
 fitted interval, so it is fitted \emph{only within resolved phase blocks}. The marker order is split
 wherever an adjacent interval is unresolved (an unidentified relative orientation between phase
 components); phase is never imputed across such a boundary, and no recombination estimate is produced
-across it. For a single dam the split is at each unresolved interval; for a joint multi-dam map a
-conservative common-block rule splits at any interval that is unresolved for a dam carrying phase
-information there, and each block's joint fit uses only the dams whose phase is resolved throughout
-that block (the contributing dams are reported). Phase is treated as fixed within each fitted block.
+across it. For a single dam the split is at each unresolved interval. For a joint multi-dam map, a
+conservative common-boundary rule places a boundary at an interval when \emph{either} no dam
+resolves that interval \emph{or} any dam that carries phase information there is unresolved. A dam
+with no phase information at the interval does not by itself force a boundary when another dam
+resolves it; but an interval that no dam resolves is always a boundary, so a single unsupported
+interval never discards an otherwise resolved chromosome-wide block on either side of it. Each
+block's joint fit uses only the dams whose phase is resolved throughout that block (the contributing
+dams are reported), and for every boundary we report the reason together with the sets of dams that
+are resolved, informative-but-unresolved, and carrying no phase information there. Phase is treated
+as fixed within each fitted block.
 
 For map reporting, an interval whose estimated $r$ is at or near $0.5$ (no linkage), or whose phase is
 unresolved, is reported as a \emph{gap}: its map distance is \texttt{NA} and it is excluded from any
 within-block map length, so an unlinked interval never becomes a large finite centimorgan distance.
-Cumulative map positions are reported \emph{within} blocks and reset after each gap. The reported map
+Within a resolved phase block, a fitted no-linkage boundary (an interval estimated at no linkage)
+starts a new \emph{map segment}: cumulative positions are reported within each segment and reset at
+every gap, so one phase block may contain several segments and a position never carries across a gap.
+Each marker's phase block, map segment, and within-segment position are reported. The reported map
 length is the sum of the finite, linked interval distances within blocks; a per-interval status
 (\texttt{linked}, \texttt{no\_linkage\_boundary}, \texttt{unresolved\_phase}, \texttt{between\_blocks},
 \texttt{insufficient\_information}) accompanies the map.
