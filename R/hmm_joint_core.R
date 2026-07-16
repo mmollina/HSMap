@@ -167,6 +167,17 @@ hmm_map_joint <- function(
     phase_list[[nm]] <- as.integer(pv)
   }
 
+  # Never let unresolved (NA) phase reach the C++ transition logic: the joint HMM
+  # requires a known relative phase for every fitted interval.
+  na_counts <- vapply(phase_list, function(pv) sum(is.na(pv)), integer(1))
+  if (any(na_counts > 0L)) {
+    bad <- names(na_counts)[na_counts > 0L]
+    stop("hmm_map_joint(): unresolved (NA) phase interval(s) in dam(s) ",
+         paste(sprintf("'%s' (%d)", bad, na_counts[bad]), collapse = ", "),
+         ". The joint HMM requires a fully resolved phase for every fitted interval; ",
+         "use hmm_map_blocks() to fit resolved phase blocks separately.", call. = FALSE)
+  }
+
   # Resolve gametic pseudocount priors into per-dam engine priors (pi_prior_list)
   # and a shared total pseudocount (lambda). A single spec (numeric target, or
   # list(alpha=, beta=)) is applied to all dams; a per-dam list supplies exactly

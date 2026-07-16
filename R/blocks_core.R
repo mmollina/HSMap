@@ -97,19 +97,40 @@ hmm_map_blocks <- function(x, phased, ..., min_block_markers = 2L, gap_r = 0.499
          "every dam (phase with a common order first).")
   Ti <- length(ord) - 1L
 
-  # per-dam phase_vec and 'informative at interval t' (a marker of the interval sits
-  # in a multi-marker phase component for that dam)
-  pv_mat  <- vapply(phased_multi, function(p) as.integer(p$phase_vec), integer(Ti))
-  inform  <- matrix(FALSE, Ti, length(dams))
+  # per-dam phase_vec (Ti x D) and 'informative at interval t' (a marker of the
+  # interval sits in a multi-marker phase component for that dam)
+  pv_mat <- vapply(phased_multi, function(p) as.integer(p$phase_vec), integer(Ti))
+  dim(pv_mat) <- c(Ti, length(dams)); colnames(pv_mat) <- dams
+  inform  <- matrix(FALSE, Ti, length(dams), dimnames = list(NULL, dams))
   for (d in seq_along(dams)) {
     comp <- phased_multi[[d]]$component
     csz  <- table(comp)
     big  <- as.integer(names(csz)[csz > 1L])
     if (Ti >= 1) inform[, d] <- (comp[-length(comp)] %in% big) | (comp[-1] %in% big)
   }
-  # boundary at t if any dam is informative-but-unresolved there
+
+  # Corrected conservative common-boundary rule. Interval t is a block boundary when
+  # EITHER (a) NO dam resolves it (no phase information links the two markers), OR
+  # (b) some dam that carries relevant phase information there is unresolved. A dam
+  # with no phase information does not by itself force a boundary when another dam
+  # resolves the interval, but an interval resolved by no dam is always a boundary.
+  resolved_mat <- !is.na(pv_mat)                    # Ti x D
   boundary <- logical(Ti)
-  for (t in seq_len(Ti)) boundary[t] <- any(inform[t, ] & is.na(pv_mat[t, ]))
+  boundary_info <- list()
+  for (t in seq_len(Ti)) {
+    res_t   <- resolved_mat[t, ]
+    inf_t   <- inform[t, ]
+    no_res  <- !any(res_t)                          # no dam resolves interval t
+    inf_bad <- any(inf_t & !res_t)                  # informative-but-unresolved dam
+    boundary[t] <- no_res || inf_bad
+    if (boundary[t])
+      boundary_info[[length(boundary_info) + 1L]] <- list(
+        interval                    = t,
+        reason                      = if (no_res) "no_dam_resolved" else "informative_dam_unresolved",
+        dams_resolved               = dams[res_t],
+        dams_informative_unresolved = dams[inf_t & !res_t],
+        dams_no_phase_info          = dams[!inf_t])
+  }
   pv_common <- ifelse(boundary, NA_integer_, 0L)  # NA only marks boundaries for splitting
   ranges <- .blocks_from_phase(length(ord), pv_common)
 
@@ -145,6 +166,7 @@ hmm_map_blocks <- function(x, phased, ..., min_block_markers = 2L, gap_r = 0.499
     blocks                = blocks,
     block_id              = stats::setNames(block_id, ord),
     unresolved_boundaries = which(boundary),
+    boundary_info         = boundary_info,
     n_blocks              = length(ranges),
     order                 = ord,
     interval_table        = itab,

@@ -116,3 +116,57 @@ test_that("fully resolved multi-dam: ordinary joint == blockwise", {
   expect_true(is.finite(bm$total_linked_length))
   expect_identical(nrow(bm$positions), length(mk))
 })
+
+
+# Commit 1 (final round): joint NA-phase rejection + corrected block-boundary rule.
+test_that("hmm_map_joint rejects unresolved (NA) phase before the C++ engine", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  d <- .two_dam(); mk <- d$mk
+  phA <- .phased("A", mk, .na_at(d$pvA, 4L), rep(1L, 8))   # A has an NA interval
+  phB <- .phased("B", mk, d$pvB,             rep(1L, 8))
+  pm <- structure(list(A = phA, B = phB), class = "HSMap.phased.multi")
+  # direct joint call is rejected, naming the affected dam + count
+  expect_error(hmm_map_joint(d$dat, phased = pm, dam = "all", epsilon = 0.01,
+                             paternal_mode = "HWE"),
+               "unresolved.*'A'.*hmm_map_blocks")
+  # the multi-dam path through hmm_map(method='joint') is rejected too
+  expect_error(hmm_map(d$dat, phased = pm, dam = "all", epsilon = 0.01,
+                       paternal_mode = "HWE"),
+               "unresolved")
+})
+
+test_that("joint block rule: an interval unresolved by EVERY dam is always a boundary", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  d <- .two_dam(); mk <- d$mk
+  # both dams unresolved AND non-informative at interval 4 (m4,m5 are singletons):
+  # the old rule (any informative-and-unresolved) would MISS this; the corrected rule
+  # (no dam resolves -> boundary) catches it.
+  comp <- c(1, 1, 1, 2, 3, 4, 4, 4)
+  phA <- .phased("A", mk, .na_at(d$pvA, 4L), comp)
+  phB <- .phased("B", mk, .na_at(d$pvB, 4L), comp)
+  pm <- structure(list(A = phA, B = phB), class = "HSMap.phased.multi")
+  mb <- hmm_map_blocks(d$dat, pm, epsilon = 0.01, paternal_mode = "HWE")
+  expect_identical(mb$n_blocks, 2L)
+  expect_true(4L %in% mb$unresolved_boundaries)
+  expect_false(is.null(mb$blocks[[1]]$fit))               # valid blocks BOTH sides
+  expect_false(is.null(mb$blocks[[2]]$fit))
+  bi <- Filter(function(z) z$interval == 4L, mb$boundary_info)[[1]]
+  expect_identical(bi$reason, "no_dam_resolved")
+})
+
+test_that("joint block rule: boundary metadata records resolved / informative-unresolved / no-info dams", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  d <- .two_dam(); mk <- d$mk
+  # A informative-but-unresolved at interval 4 (component split) -> boundary;
+  # B fully resolved (contributes to both blocks).
+  phA <- .phased("A", mk, .na_at(d$pvA, 4L), c(1, 1, 1, 1, 2, 2, 2, 2))
+  phB <- .phased("B", mk, d$pvB,             rep(1L, 8))
+  pm <- structure(list(A = phA, B = phB), class = "HSMap.phased.multi")
+  mb <- hmm_map_blocks(d$dat, pm, epsilon = 0.01, paternal_mode = "HWE")
+  bi <- Filter(function(z) z$interval == 4L, mb$boundary_info)[[1]]
+  expect_identical(bi$reason, "informative_dam_unresolved")
+  expect_true("A" %in% bi$dams_informative_unresolved)    # A forced the boundary
+  expect_true("B" %in% bi$dams_resolved)                  # B resolves it
+  # a single unsupported interval does not discard the chromosome: two valid blocks
+  expect_identical(mb$n_blocks, 2L)
+})
