@@ -252,6 +252,13 @@ hmm_map <- function(
     pv  <- ph$phase_vec
     if (length(pv) != length(ord) - 1L)
       stop("phase_vec length must be length(order)-1 for dam '", dam_id, "'.")
+    # Never run the HMM through unresolved (NA) phase intervals: the model requires a
+    # known relative phase for every fitted interval. Split the map first.
+    if (anyNA(pv))
+      stop("phase_vec for dam '", dam_id, "' has ", sum(is.na(pv)),
+           " unresolved interval(s) (NA phase). hmm_map() requires a fully resolved ",
+           "phase; use hmm_map_blocks() to fit resolved phase blocks separately, or ",
+           "restrict `order` to a single resolved block.", call. = FALSE)
 
     missG <- setdiff(ord, colnames(Gmat))
     missM <- setdiff(ord, names(Mvec))

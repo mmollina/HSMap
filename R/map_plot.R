@@ -166,7 +166,8 @@ plot_one_map <- function(x,
 #' @return A named numeric vector of cumulative positions in cM
 #'   with names equal to `map$order`.
 #' @keywords internal
-get_map <- function(map, map.function = c("haldane", "kosambi", "morgan")) {
+get_map <- function(map, map.function = c("haldane", "kosambi", "morgan"),
+                    gap_r = 0.499) {
   map.function <- match.arg(map.function)
 
   if (!inherits(map, "HSMap.map")) {
@@ -178,29 +179,49 @@ get_map <- function(map, map.function = c("haldane", "kosambi", "morgan")) {
   if (is.null(map$order)) {
     stop("'map$order' is missing.", call. = FALSE)
   }
+  if (!is.numeric(gap_r) || length(gap_r) != 1L || !is.finite(gap_r) || gap_r <= 0 || gap_r > 0.5)
+    stop("`gap_r` must be a single number in (0, 0.5].", call. = FALSE)
 
-  mf <- switch(
-    map.function,
-    haldane = inv_haldane,
-    kosambi = inv_kosambi,
-    morgan  = inv_morgan
-  )
-  if (!is.function(mf)) {
-    stop("Mapping function not found in the namespace: ", map.function, call. = FALSE)
-  }
+  mf <- switch(map.function, haldane = inv_haldane, kosambi = inv_kosambi, morgan = inv_morgan)
 
-  r <- as.numeric(map$fit$r)
-  if (any(!is.finite(r))) stop("Non-finite values in 'map$fit$r'.", call. = FALSE)
-  if (any(r < 0 | r > 0.5, na.rm = TRUE)) {
-    stop("Recombination fractions must be in [0, 0.5].", call. = FALSE)
-  }
-
-  pos <- cumsum(mf(c(0, r)))
+  r   <- as.numeric(map$fit$r)
   ord <- as.character(map$order)
+  Ti  <- length(r)
+  if (Ti != length(ord) - 1L)
+    stop("Length mismatch between 'map$fit$r' and 'map$order'.", call. = FALSE)
+  if (any(r < 0 | r > 0.5, na.rm = TRUE))
+    stop("Recombination fractions must be in [0, 0.5].", call. = FALSE)
 
-  if (length(pos) != length(ord)) {
-    stop("Length mismatch between positions and 'map$order'.", call. = FALSE)
+  # Interval status. An interval with r at/near 0.5, non-finite r, or (in a blockwise
+  # map) unresolved relative phase is a GAP: its distance is NA and it is NOT included
+  # in any within-block map length. It never becomes a large finite cM distance.
+  unresolved <- if (!is.null(map$resolved_interval) && length(map$resolved_interval) == Ti)
+    !as.logical(map$resolved_interval) else rep(FALSE, Ti)
+  status <- rep("linked", Ti)
+  status[unresolved]                         <- "unresolved_phase"
+  status[!unresolved & !is.finite(r)]        <- "insufficient_information"
+  status[!unresolved & is.finite(r) & r >= gap_r] <- "no_linkage_boundary"
+
+  linked <- status == "linked"
+  dist <- rep(NA_real_, Ti)
+  if (any(linked)) dist[linked] <- mf(pmin(r[linked], 0.5))
+
+  # Cumulative positions reset to 0 after each gap (within-block positions).
+  block <- integer(length(ord)); pos <- numeric(length(ord))
+  block[1] <- 1L; pos[1] <- 0
+  for (t in seq_len(Ti)) {
+    if (linked[t]) { block[t + 1L] <- block[t]; pos[t + 1L] <- pos[t] + dist[t] }
+    else           { block[t + 1L] <- block[t] + 1L; pos[t + 1L] <- 0 }  # gap -> new block
   }
+  pos <- stats::setNames(pos, ord)
 
-  stats::setNames(pos, ord)
+  wbl <- tapply(dist, block[seq_len(Ti)], function(z) sum(z, na.rm = TRUE))
+  attr(pos, "status")               <- stats::setNames(status, if (Ti) paste0(ord[-length(ord)], "-", ord[-1]) else character(0))
+  attr(pos, "dist_cM")              <- dist
+  attr(pos, "block")                <- block
+  attr(pos, "within_block_length")  <- as.numeric(wbl)
+  attr(pos, "total_linked_length")  <- sum(dist, na.rm = TRUE)
+  attr(pos, "n_gaps")               <- sum(!linked)
+  attr(pos, "map.function")         <- map.function
+  pos
 }
