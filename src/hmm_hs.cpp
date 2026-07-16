@@ -127,7 +127,8 @@ struct EStepWorker : public Worker {
 
   // partial reductions
   std::vector<double> same, diff;    // length T-1, expected nonrecombinant vs recombinant under local phase
-  std::vector<double> Ng0, Ng1, Ng2; // length T, expected paternal genotype counts per marker (Model A)
+  std::vector<double> Ng0, Ng1, Ng2; // length T, expected paternal genotype counts per marker (per_marker)
+  std::vector<double> N_A, N_a;      // length T, expected transmitted paternal A-/a-gamete counts (HWE/gametic)
   std::vector< std::array<double,10> > Ns; // length T-1, expected class counts per interval (Model B)
   double ll_sum;
 
@@ -145,6 +146,7 @@ struct EStepWorker : public Worker {
       T(G_.ncol()),
       same(T-1, 0.0), diff(T-1, 0.0),
       Ng0(T, 0.0), Ng1(T, 0.0), Ng2(T, 0.0),
+      N_A(T, 0.0), N_a(T, 0.0),
       Ns(T-1), ll_sum(0.0)
   {
     for (int k=0; k<T-1; ++k) for (int s=0; s<10; ++s) Ns[k][s] = 0.0;
@@ -157,6 +159,7 @@ struct EStepWorker : public Worker {
       T(rhs.T),
       same(T-1, 0.0), diff(T-1, 0.0),
       Ng0(T, 0.0), Ng1(T, 0.0), Ng2(T, 0.0),
+      N_A(T, 0.0), N_a(T, 0.0),
       Ns(T-1), ll_sum(0.0)
   {
     for (int k=0; k<T-1; ++k) for (int s=0; s<10; ++s) Ns[k][s] = 0.0;
@@ -279,16 +282,60 @@ struct EStepWorker : public Worker {
       }
     }
 
-    // paternal responsibilities per marker (Model A modes).
-    // R_g = P(paternal genotype g | Y) = sum_h gamma(h) * pi_g P(y|h,g) / b(h),
-    // where b(h) = sum_g pi_g P(y|h,g) is the emission for maternal state h. The
-    // per-state b(h) normalizes INSIDE the sum over h; using the gamma-averaged
-    // emission as the denominator biases the q update (the EM then need not
-    // ascend the observed-data likelihood). A state h contributes only when its
-    // posterior weight ga(h) > 0 AND its emission b(h) > 0, so an impossible
-    // state (b(h) = 0 at epsilon = 0) is skipped rather than dividing by zero or
-    // by an arbitrary floor.
-    if (paternal_mode != "two_locus") {
+    // Paternal responsibilities per marker (Model A modes).
+    //
+    // HWE / gametic mode (public, default): accumulate DIRECT transmitted-gamete
+    // counts. The offspring's paternal gamete is A with probability q_t and a with
+    // 1 - q_t; the per-offspring, per-marker responsibility that the transmitted
+    // gamete was A is
+    //   rho_A = sum_h gamma(h) * q_t P(y|h,A) / b(h),
+    //   rho_a = sum_h gamma(h) * (1-q_t) P(y|h,a) / b(h),
+    //   b(h)  = q_t P(y|h,A) + (1-q_t) P(y|h,a),
+    // where P(y|h,A) = P(y | maternal state h, paternal gamete A) is the AA
+    // single-locus emission (AA transmits A with probability 1) and P(y|h,a) the
+    // aa emission. This is the correct E-step of the one-parameter gametic model
+    // whose M-step is q = (N_A + alpha)/(N_A + N_a + alpha + beta); it does NOT
+    // route q through latent diploid paternal-genotype counts, which would make
+    // the effective prior strength ~2x the documented pseudocount (a genotype
+    // observation carries two alleles). The per-state b(h) normalizes INSIDE the
+    // sum over h; a state contributes only when gamma(h) > 0 AND b(h) > 0 (an
+    // impossible state at epsilon = 0 is skipped rather than dividing by zero).
+    //
+    // per_marker mode (legacy, for reproducing historical fits): unchanged
+    // expected diploid genotype responsibilities R_g = sum_h gamma(h) pi_g
+    // P(y|h,g) / b(h), b(h) = sum_g pi_g P(y|h,g).
+    if (paternal_mode == "HWE") {
+      for (int t=0; t<T; ++t) {
+        const double gg0 = alpha[2*t+0]*beta[2*t+0];
+        const double gg1 = alpha[2*t+1]*beta[2*t+1];
+        const double z = gg0 + gg1;
+        if (z <= 0.0) continue;                 // no maternal-state info here
+        const double ga0 = gg0 / z;
+        const double ga1 = gg1 / z;
+
+        const int y  = G(i,t);
+        if (y == NA_INTEGER) continue;
+        const int Mt = M[t];
+        // pi_emis is HWE(q_t) in this mode, so q_t = P(AA) + 0.5 P(Aa).
+        const double q = clamp01(pi_emis(0,t) + 0.5*pi_emis(1,t));
+
+        double nA = 0.0, na = 0.0;              // contributions to N_A / N_a
+        if (ga0 > 0.0) {
+          const double eA = py_hgM_obs(y,0,1,Mt,epsilon); // P(y | maternal 0, gamete A)
+          const double ea = py_hgM_obs(y,0,3,Mt,epsilon); // P(y | maternal 0, gamete a)
+          const double b0 = q*eA + (1.0-q)*ea;
+          if (b0 > 0.0) { nA += ga0 * q * eA / b0; na += ga0 * (1.0-q) * ea / b0; }
+        }
+        if (ga1 > 0.0) {
+          const double eA = py_hgM_obs(y,1,1,Mt,epsilon);
+          const double ea = py_hgM_obs(y,1,3,Mt,epsilon);
+          const double b1 = q*eA + (1.0-q)*ea;
+          if (b1 > 0.0) { nA += ga1 * q * eA / b1; na += ga1 * (1.0-q) * ea / b1; }
+        }
+        N_A[t] += nA;
+        N_a[t] += na;
+      }
+    } else if (paternal_mode == "per_marker") {
       for (int t=0; t<T; ++t) {
         const double gg0 = alpha[2*t+0]*beta[2*t+0];
         const double gg1 = alpha[2*t+1]*beta[2*t+1];
@@ -353,6 +400,8 @@ struct EStepWorker : public Worker {
       Ng0[t]  += rhs.Ng0[t];
       Ng1[t]  += rhs.Ng1[t];
       Ng2[t]  += rhs.Ng2[t];
+      N_A[t]  += rhs.N_A[t];
+      N_a[t]  += rhs.N_a[t];
     }
     for (int k=0; k<T-1; ++k)
       for (int s=0; s<10; ++s)
@@ -558,20 +607,28 @@ Rcpp::List hmm_hs_cpp_parallel(Rcpp::IntegerMatrix G,           // n x T
           dpi = std::max(dpi, std::fabs(pi_new(g,t) - pi(g,t)));
       // commit
       for (int j=0; j<T; ++j) { pi(0,j)=pi_new(0,j); pi(1,j)=pi_new(1,j); pi(2,j)=pi_new(2,j); }
-    } else { // HWE: p is allele-A frequency
+    } else { // HWE / gametic: direct penalized (MAP) update on q
       NumericMatrix pi_new(3, T);
       for (int t = 0; t < T; ++t) {
-        const double denom   = worker.Ng0[t] + worker.Ng1[t] + worker.Ng2[t];          // total expected paternal genotypes
-        const double p_hat   = (2.0*worker.Ng0[t] + worker.Ng1[t]) / std::max(2.0*denom, 1e-12); // p_hat = P(A)
-        const double p_prior = pi_prior(0,t) + 0.5*pi_prior(1,t);                       // prior p = P(A) from prior genotypes
-        double p_post = (p_hat*denom + lambda*p_prior) / std::max(denom + lambda, 1e-12);
-        p_post = clamp01(p_post);
+        // Direct transmitted-gamete counts and pseudocount prior:
+        //   q = (N_A + alpha)/(N_A + N_a + alpha + beta),
+        // with pseudocount target q0 = alpha/(alpha+beta) and total lambda,
+        // so alpha = lambda*q0, beta = lambda*(1-q0). This maximizes
+        //   logLik + sum_t[alpha log q_t + beta log(1-q_t)]
+        // (posterior mode under Beta(alpha+1, beta+1)); lambda = 0 is the MLE.
+        const double NA = worker.N_A[t];
+        const double Na = worker.N_a[t];
+        const double q0 = pi_prior(0,t) + 0.5*pi_prior(1,t);   // pseudocount target q0 = P(A)
+        const double a  = lambda * q0;
+        const double b  = lambda * (1.0 - q0);
+        double q_post = (NA + a) / std::max(NA + Na + a + b, 1e-12);
+        q_post = clamp01(q_post);
 
-        // Hardy–Weinberg with p = P(A):
+        // Derived Hardy–Weinberg emission form with p = q_post = P(A):
         // rows are 0=AA, 1=Aa, 2=aa
-        pi_new(0,t) = p_post * p_post;                 // AA
-        pi_new(1,t) = 2.0 * p_post * (1.0 - p_post);  // Aa
-        pi_new(2,t) = (1.0 - p_post) * (1.0 - p_post);// aa
+        pi_new(0,t) = q_post * q_post;                 // AA
+        pi_new(1,t) = 2.0 * q_post * (1.0 - q_post);  // Aa
+        pi_new(2,t) = (1.0 - q_post) * (1.0 - q_post);// aa
       }
 
       // convergence metric and update
@@ -925,13 +982,13 @@ Rcpp::List hmm_hs_joint_cpp(Rcpp::List G_list,                                  
           dpi=std::max(dpi, std::fabs(nc-pi[d](2,t)));
           pi[d](0,t)=na; pi[d](1,t)=nb; pi[d](2,t)=nc;
         }
-      } else { // HWE
+      } else { // HWE / gametic: direct per-dam MAP update on q (gamete counts NOT pooled)
         for (int t=0; t<T; ++t) {
-          double denom=worker.Ng0[t]+worker.Ng1[t]+worker.Ng2[t];
-          double p_hat=(2.0*worker.Ng0[t]+worker.Ng1[t])/std::max(2.0*denom, 1e-12);
-          double p_prior=pi_prior[d](0,t)+0.5*pi_prior[d](1,t);
-          double p_post=clamp01((p_hat*denom+lambda*p_prior)/std::max(denom+lambda, 1e-12));
-          double na=p_post*p_post, nb=2.0*p_post*(1.0-p_post), nc=(1.0-p_post)*(1.0-p_post);
+          double NA=worker.N_A[t], Na=worker.N_a[t];
+          double q0=pi_prior[d](0,t)+0.5*pi_prior[d](1,t);      // pseudocount target q0 = P(A)
+          double a=lambda*q0, b=lambda*(1.0-q0);
+          double q_post=clamp01((NA+a)/std::max(NA+Na+a+b, 1e-12));
+          double na=q_post*q_post, nb=2.0*q_post*(1.0-q_post), nc=(1.0-q_post)*(1.0-q_post);
           dpi=std::max(dpi, std::fabs(na-pi[d](0,t)));
           dpi=std::max(dpi, std::fabs(nb-pi[d](1,t)));
           dpi=std::max(dpi, std::fabs(nc-pi[d](2,t)));
