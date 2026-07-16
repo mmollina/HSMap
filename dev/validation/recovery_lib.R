@@ -181,9 +181,9 @@ run_scenario_joint <- function(scen, rep_id) {
 
   fit_joint <- function(phased)
     hmm_map(dat, phased = phased, dam = "all", method = "joint", epsilon = 0.01,
-            paternal_mode = "per_marker", r_start = rs, tol = 1e-6, maxit = 300)$fit$r
+            paternal_mode = "gametic", r_start = rs, tol = 1e-6, maxit = 300)$fit$r
   cons_r <- hmm_map(dat, phased = oph, dam = "all", method = "consensus", epsilon = 0.01,
-                    paternal_mode = "per_marker", r_start = rs, tol = 1e-6, maxit = 300)$consensus$r
+                    paternal_mode = "gametic", r_start = rs, tol = 1e-6, maxit = 300)$consensus$r
 
   rbind(
     cbind(base("joint",     "oracle",   NA_real_), metrics_r(r_true, fit_joint(oph))),

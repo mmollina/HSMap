@@ -28,9 +28,9 @@ sim1 <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 250,
 dat1 <- make_hsmap_data(sim1); markers <- sim1$truth$markers_union
 oph1 <- oracle_phased(markers, 1L - sim1$truth$v_true[[1]], dam = "P1")
 m_single <- hmm_map(dat1, phased = oph1, dam = 1, epsilon = 0.01,
-                    paternal_mode = "per_marker", tol = 1e-6, maxit = 1000)
+                    paternal_mode = "gametic", tol = 1e-6, maxit = 1000)
 m_joint1 <- hmm_map_joint(dat1, phased = oph1, dam = "all", epsilon = 0.01,
-                          paternal_mode = "per_marker", tol = 1e-6, maxit = 1000)
+                          paternal_mode = "gametic", tol = 1e-6, maxit = 1000)
 cat(sprintf("max|r_joint - r_single| = %.3e   (joint iters=%d, single iters=%d)\n",
             max(abs(m_joint1$fit$r - m_single$fit$r)), m_joint1$fit$iters, m_single$fit$iters))
 cat(sprintf("recomb: true=%.2f single=%.2f joint=%.2f\n",
@@ -48,7 +48,7 @@ simB <- sim_multi_pop(T_markers = Tm, n_pops = 3, n_ind_per_pop = c(150,150,150)
 datB <- make_hsmap_data(simB); mk <- simB$truth$markers_union
 ophB <- oracle_multi(simB, mk)
 mjB <- hmm_map_joint(datB, phased = ophB, dam = "all", epsilon = 0.01,
-                     paternal_mode = "per_marker", tol = 1e-6, maxit = 500)
+                     paternal_mode = "gametic", tol = 1e-6, maxit = 500)
 cat(sprintf("joint: RMSE=%.4f recomb true/hat=%.2f/%.2f iters=%d conv=%s\n",
             rmse(r_true, mjB$fit$r), sum(r_true), sum(mjB$fit$r),
             mjB$fit$iters, mjB$fit$converged))
@@ -66,9 +66,9 @@ datC <- make_hsmap_data(simC); mk <- simC$truth$markers_union
 ophC <- oracle_multi(simC, mk)
 
 mjC  <- hmm_map_joint(datC, phased = ophC, dam = "all", epsilon = 0.01,
-                      paternal_mode = "per_marker", tol = 1e-6, maxit = 500)
+                      paternal_mode = "gametic", tol = 1e-6, maxit = 500)
 mcC  <- hmm_map(datC, phased = ophC, dam = "all", epsilon = 0.01,
-                paternal_mode = "per_marker", tol = 1e-6, maxit = 500)
+                paternal_mode = "gametic", tol = 1e-6, maxit = 500)
 r_joint <- mjC$fit$r
 r_cons  <- mcC$consensus$r                       # offspring-weighted avg of per-dam MLEs
 perdam  <- sapply(mcC$per_dam, function(m) as.numeric(m$fit$r))   # K x 3

@@ -12,10 +12,11 @@ hmm_map(
   epsilon = 0.01,
   tol = 1e-04,
   pi_mode = c("per_marker", "HWE"),
-  paternal_mode = c("per_marker", "HWE", "two_locus"),
+  paternal_mode = c("gametic", "HWE", "per_marker", "two_locus"),
   r_start = 0.05,
   lambda = 20,
   maxit = 200,
+  q_prior_in = NULL,
   pi_prior_in = NULL,
   Pi_prior_in = NULL,
   method = c("joint", "consensus"),
@@ -46,23 +47,66 @@ Default \code{0.01}.}
 
 \item{tol}{Convergence tolerance for EM. Default \code{1e-4}.}
 
-\item{pi_mode}{Emission parameterization for the paternal mixture when
-\code{paternal_mode != "two_locus"}. One of \code{c("per_marker","HWE")}.
-Default \code{"per_marker"}.}
+\item{pi_mode}{Retained for backward compatibility only and \strong{ignored} by the
+identifiable paternal model (the paternal contribution is a single per-marker
+allele frequency; see \code{paternal_mode}).}
 
 \item{paternal_mode}{Paternal model for the HMM. One of
-\code{c("per_marker","HWE","two_locus")}. Default \code{"per_marker"}.}
+\code{c("gametic","HWE","per_marker","two_locus")}, default \code{"gametic"}.
+\describe{
+\item{\code{"gametic"}}{The identifiable model. The paternal contribution
+is a single per-marker (and per-dam) sire gametic allele frequency
+\eqn{q_k = \Pr(\text{paternal gamete transmits } A) = \pi_{AA}+\tfrac12\pi_{Aa}},
+the only paternal quantity the half-sib offspring likelihood identifies.
+Returned in \code{fit$q}.}
+\item{\code{"HWE"}}{Accepted compatibility alias for \code{"gametic"}:
+mathematically identical (under Hardy--Weinberg the allele frequency
+\eqn{p_k \equiv q_k}), so it yields byte-identical results. It is
+\emph{not} a separately identifiable biological model.}
+\item{\code{"per_marker"}}{Deprecated. Accepted with a warning and routed
+to \code{"gametic"}; any supplied \code{pi_prior_in} is collapsed to its
+induced \eqn{q}. The three free genotype frequencies are not identifiable
+(only \eqn{q_k} is). The legacy engine remains reachable via the internal
+\code{hmm_hs_cpp_parallel()} for historical reproduction.}
+\item{\code{"two_locus"}}{Disabled (informative error). The 10-class
+two-locus mixture does not identify paternal linkage disequilibrium.}
+}}
 
 \item{r_start}{Initial recombination fraction for all intervals.
 Default \code{0.05}.}
 
-\item{lambda}{Dirichlet shrinkage strength for paternal parameters.
-Default \code{20}.}
+\item{lambda}{Default total pseudocount \eqn{\alpha+\beta} for the gametic
+paternal prior when \code{q_prior_in} is \code{NULL} or a numeric mean.
+Default \code{20} (\eqn{\alpha=\beta=10} at prior mean \eqn{0.5}). This value
+is the historical default and is kept for backward compatibility only; it is
+\strong{not} a statistically validated recommendation. It can over-shrink
+\eqn{q} at extreme sire allele frequencies (a separate simulation study on
+the corrected engine is needed to choose a default). See \code{q_prior_in};
+set \eqn{\alpha=\beta=0} for no regularization.}
 
 \item{maxit}{Maximum EM iterations. Default \code{200}.}
 
-\item{pi_prior_in}{Optional 3 x T prior for paternal genotype frequencies
-when \code{paternal_mode != "two_locus"}.}
+\item{q_prior_in}{Optional gametic prior on the sire allele frequency
+\eqn{q_k}, supplied as \strong{pseudocounts}. One of: \code{NULL} (default;
+uses the historical strength \code{lambda = 20}, i.e. \eqn{\alpha=\beta=10}
+at prior mean \eqn{0.5}); a numeric scalar or length-\eqn{T} vector of prior means
+\eqn{q^{(0)}_k} (total pseudocount \code{lambda}); or \code{list(alpha=,
+  beta=)} giving explicit non-negative pseudocounts (scalars or length-\eqn{T}).
+Per-marker means are supported; the total pseudocount \eqn{\alpha+\beta} must
+be constant across markers. The paternal M-step is the penalized (MAP) update
+\deqn{\hat q_k = (N_{A,k}+\alpha_k)/(N_{A,k}+N_{a,k}+\alpha_k+\beta_k),}
+where \eqn{N_{A,k}, N_{a,k}} are the expected paternal A-/a-gamete counts;
+it maximizes \eqn{\log L + \sum_k[\alpha_k\log q_k + \beta_k\log(1-q_k)]}.
+\strong{\eqn{\alpha,\beta} are pseudocounts, not Beta shape parameters}: the
+equivalent probability prior is \eqn{\mathrm{Beta}(\alpha_k+1,\beta_k+1)}, so
+\eqn{\alpha=\beta=0} is the uniform \eqn{\mathrm{Beta}(1,1)} prior (MAP =
+unregularized fit). With a numeric mean, \eqn{\alpha_k=\lambda q^{(0)}_k} and
+\eqn{\beta_k=\lambda(1-q^{(0)}_k)}. Takes precedence over \code{pi_prior_in}.}
+
+\item{pi_prior_in}{Optional 3 x T paternal prior (legacy). Only its implied
+gametic allele frequency \eqn{q^{(0)}_k = \pi^{(0)}_{AA} +
+  \tfrac12\pi^{(0)}_{Aa}} is used (the genotype split is not identifiable);
+prefer \code{q_prior_in}, which supersedes it.}
 
 \item{Pi_prior_in}{Optional 10 x (T-1) prior for interval classes when
 \code{paternal_mode == "two_locus"}.}
@@ -83,7 +127,12 @@ If \code{TRUE} and multiple dams are requested, also compute a consensus
 \value{
 If a single dam is requested, an object of class \code{"HSMap.map"} with
 \code{order}, \code{phase_vec}, \code{fit} (the C++ HMM result) and
-\code{dam}. If multiple dams are requested with \code{method = "joint"}
+\code{dam}. The canonical paternal output is \code{fit$q}, the per-marker sire
+gametic allele frequency \eqn{q_k}. \strong{\code{fit$pi} is deprecated for
+direct interpretation}: it is retained only as the derived HWE-form emission
+table (\eqn{[q^2, 2q(1-q), (1-q)^2]}) consumed by downstream decoders, and is
+\emph{not} an estimate of paternal genotype frequencies. If multiple dams are requested
+with \code{method = "joint"}
 (default), a single shared map of class \code{c("HSMap.map.joint","HSMap.map")}
 (see \code{\link{hmm_map_joint}}), directly usable by \code{\link{get_map}} and
 \code{\link{plot_map_list}}. With \code{method = "consensus"}, a named list of
@@ -99,6 +148,22 @@ HMM per family, and returns the per-dam results together. If
 \code{return_consensus = TRUE}, a consensus recombination fraction (\code{r}) per
 interval is also computed across the selected dams (see \emph{Consensus r}).
 }
+\section{Paternal identifiability}{
+
+The offspring likelihood depends on the paternal contribution \emph{only}
+through the sire gametic allele frequency \eqn{q_k = \pi_{AA} + \tfrac12
+\pi_{Aa}}: any two genotype-frequency vectors with the same \eqn{q} give the
+same likelihood and the same fitted \eqn{\mathbf r}. The \emph{regularized}
+estimate does depend on the prior. The \code{"gametic"} model applies a
+penalty \eqn{\alpha\log q + \beta\log(1-q)} (a \eqn{\mathrm{Beta}(\alpha+1,
+\beta+1)} prior; see \code{q_prior_in}), which \emph{need not} coincide with
+the legacy \code{"per_marker"} Dirichlet-on-genotypes regularizer even though
+both share the same unpenalized objective. Setting \eqn{\alpha=\beta=0} removes
+the penalty (uniform \eqn{\mathrm{Beta}(1,1)} prior), giving the unregularized
+fit; because the objective may have multiple optima this is not asserted to be
+the global MLE.
+}
+
 \section{Consensus r}{
 
 For several dams fitted on the same marker order, we form a consensus

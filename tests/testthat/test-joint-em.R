@@ -17,9 +17,9 @@ test_that("joint EM with a single dam reproduces the single-dam path", {
   oph <- oracle_phased(mk, 1L - sim$truth$v_true[[1]], "P1")
 
   m_single <- hmm_map(dat, phased = oph, dam = 1, epsilon = 0.01,
-                      paternal_mode = "per_marker", tol = 1e-6, maxit = 500)
+                      paternal_mode = "gametic", tol = 1e-6, maxit = 500)
   m_joint  <- hmm_map_joint(dat, phased = oph, dam = "all", epsilon = 0.01,
-                            paternal_mode = "per_marker", tol = 1e-6, maxit = 500)
+                            paternal_mode = "gametic", tol = 1e-6, maxit = 500)
 
   expect_equal(as.numeric(m_joint$fit$r), as.numeric(m_single$fit$r), tolerance = 1e-8)
 })
@@ -39,7 +39,7 @@ test_that("joint multi-dam returns a shared map usable downstream", {
 
   # hmm_map default method = "joint"
   m <- hmm_map(dat, phased = oph, dam = "all", epsilon = 0.01,
-               paternal_mode = "per_marker", tol = 1e-6, maxit = 300)
+               paternal_mode = "gametic", tol = 1e-6, maxit = 300)
 
   expect_s3_class(m, "HSMap.map")
   expect_true(inherits(m, "HSMap.map.joint"))
@@ -78,7 +78,7 @@ test_that("joint is less sensitive to r_start than the consensus (informed inter
 
   fit_r <- function(method, rs) {
     res <- hmm_map(dat, phased = oph, dam = "all", method = method,
-                   epsilon = 0.01, paternal_mode = "per_marker",
+                   epsilon = 0.01, paternal_mode = "gametic",
                    r_start = rs, tol = 1e-6, maxit = 300)
     if (method == "joint") as.numeric(res$fit$r) else as.numeric(res$consensus$r)
   }
@@ -102,7 +102,7 @@ test_that("calc_haploprob decodes the joint shared map", {
   dat <- make_dat(sim); mk <- sim$truth$markers_union
   oph <- oracle_multi(sim, mk)
   m <- hmm_map(dat, phased = oph, dam = "all", epsilon = 0.01,
-               paternal_mode = "per_marker", tol = 1e-6, maxit = 200)
+               paternal_mode = "gametic", tol = 1e-6, maxit = 200)
   expect_true(inherits(m, "HSMap.map.joint"))
 
   gp <- calc_haploprob(dat, m)                # default: all dams

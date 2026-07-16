@@ -34,9 +34,9 @@ for (rp in seq_len(reps)) {
   ndh  <- sapply(1:(Tm-1), function(k) sum(Mhet[k,] & Mhet[k+1,], na.rm = TRUE))
 
   mj <- hmm_map_joint(dat, phased = oph, dam = "all", epsilon = 0.01,
-                      paternal_mode = "per_marker", tol = 1e-6, maxit = 500)
+                      paternal_mode = "gametic", tol = 1e-6, maxit = 500)
   mc <- hmm_map(dat, phased = oph, dam = "all", epsilon = 0.01,
-                paternal_mode = "per_marker", tol = 1e-6, maxit = 500)
+                paternal_mode = "gametic", tol = 1e-6, maxit = 500)
   r_joint <- mj$fit$r
   r_cons  <- mc$consensus$r
 
