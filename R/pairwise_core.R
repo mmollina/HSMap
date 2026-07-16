@@ -154,23 +154,31 @@ cpp_pairwise_rf <- function(G_list,
 #'     genotype matrix} \eqn{G_g}.
 #'   \item Genotypes are coded as 0 (aa), 1 (Aa), 2 (AA), or \code{NA} (missing).
 #'   \item In each \eqn{G_g} matrix, markers are in columns and offspring are in rows.
-#'   \item Paternal contributions are modeled as a mixture of genotypes and are
-#'     statistically integrated out using a robust likelihood function.
+#'   \item The paternal contribution enters through a single per-marker, **per-dam**
+#'     paternal gametic frequency \eqn{q_k^{(d)}} (the identifiable quantity); it is
+#'     not a diploid genotype mixture. The pairwise model assumes zero genotyping
+#'     error.
 #'   \item A family is informative for a marker pair \eqn{(i,j)} only if the dam
 #'     is heterozygous for both markers (\emph{double-heterozygous}).
 #' }
 #'
 #' @section Estimation Process:
-#' For each marker pair \eqn{(i,j)}, the function:
+#' All selected marker pairs \eqn{(i,j)} are evaluated (not only adjacent pairs). For
+#' each pair, the function:
 #' \enumerate{
-#'   \item Aggregates the \eqn{3 \times 3} contingency tables of offspring
-#'     genotype combinations \eqn{(Y_i, Y_j)} across all families.
-#'   \item Estimates paternal allele frequencies from the marginal offspring
-#'     genotype distributions.
-#'   \item Computes the log-likelihood of the data under both coupling and
-#'     repulsion phases for a given recombination fraction \eqn{r}.
-#'   \item Maximizes the combined objective function over \eqn{r \in (10^{-6}, 0.49)}
-#'     using a golden-section search to find the optimal \eqn{\hat{r}}:
+#'   \item Estimates a **dam-specific** paternal gametic frequency \eqn{q_k^{(d)}}
+#'     from that dam's zero-error AA/aa transmissions (a heterozygous offspring is
+#'     uninformative), using every offspring with an observed call at the marker,
+#'     including those missing at the other marker of the pair.
+#'   \item Computes the log-likelihood under coupling and repulsion for a given
+#'     recombination fraction \eqn{r}; single-marker (partially missing) observations
+#'     enter through the correct single-marker marginal and are not discarded.
+#'   \item Maximizes the combined objective over \eqn{r \in [10^{-6}, 0.5]} --- the
+#'     no-linkage null is evaluated at \strong{exactly} \eqn{r = 0.5} and
+#'     \eqn{\hat r = 0.5} is permitted. Because the objective is a sum over dams of a
+#'     maximum of two phase-specific likelihoods it may be multimodal, so it is
+#'     maximized by a coarse grid over \eqn{[\varepsilon, 0.5]} (including 0.5)
+#'     followed by bounded local refinement, not a single golden-section search:
 #'     \deqn{ \mathrm{Obj}(r) = \sum_{g=1}^{G} \max\{\ell_g(\mathrm{Coupling}; r), \ell_g(\mathrm{Repulsion}; r)\} }
 #' }
 #'
@@ -205,12 +213,14 @@ cpp_pairwise_rf <- function(G_list,
 #'     \code{NA} if uninformative.
 #' }
 #'
-#' @section Regularization (`lambda`):
-#' The likelihood calculation includes a regularization parameter `lambda` that
-#' adds pseudo-counts to the paternal genotype mixture probabilities. This acts
-#' as a Dirichlet-type shrinkage, stabilizing estimates for pairs with few
-#' informative offspring. The default value of `20` provides a balance between
-#' bias and variance.
+#' @section Regularization (`lambda`, `q0`):
+#' `lambda` is the total pseudocount of a per-marker prior on the (one-dimensional)
+#' paternal gametic frequency \eqn{q_k^{(d)}}: \eqn{\alpha = \mathtt{lambda}\cdot
+#' \mathtt{q0}}, \eqn{\beta = \mathtt{lambda}\cdot(1-\mathtt{q0})}, so
+#' \eqn{\hat q = (n_{AA}+\alpha)/(n_{AA}+n_{aa}+\alpha+\beta)}. It is a one-parameter
+#' shrinkage of \eqn{q} toward \code{q0}, \strong{not} a Dirichlet prior on three
+#' genotype frequencies. The default \code{20} is retained for backward compatibility
+#' only and has not been chosen by a formal sensitivity study.
 #'
 #' @section Performance and Parallelism:
 #' \itemize{

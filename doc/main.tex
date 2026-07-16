@@ -369,9 +369,9 @@ The graph is built \emph{per dam} from that dam's own phase-LOD matrix (not a po
 
 \paragraph{Initialization and Constraints:} We use an uninformative prior for the initial hidden states at the left boundary (uniform prior $\,\Pr(S_{i1}=1)=\Pr(S_{i1}=2)=\tfrac12$). Recombination fractions are initialized uniformly (e.g., $r_k=0.1$) and are constrained to the interval $[\varepsilon, 0.5-\varepsilon]$ during optimization for a small $\varepsilon > 0$. Each dam-specific paternal gametic frequency $q_k^{(d)}$ is initialized at $0.5$; the default total pseudocount is $\lambda=20$ (i.e.\ $\alpha_k=\beta_k=10$, pseudocount target $q^{(0)}_k=0.5$), retained for backward compatibility only and not a statistically validated recommendation (Section~\ref{sec:par_cont}).
 
-\paragraph{Convergence and Decoding:} The EM algorithm is run until the relative increase in the total log-likelihood between iterations falls below a tolerance of $10^{-6}$, or until a maximum number of iterations is reached. After convergence, the final model parameters can be used to decode the maternal transmissions for each offspring. The Viterbi algorithm can be used to find the single most probable inheritance path, while the posterior probabilities ($\gamma_k(j)$) provide the probability of inheriting from each homolog at each locus. These decoded paths are valuable for downstream analyses, such as identifying specific crossover locations, error checking or quantitative trait loci (QTL) analysis.
+\paragraph{Convergence and Decoding:} The EM algorithm is run until (i) the relative change in the \emph{active objective}---the observed-data log-likelihood when $\lambda=0$, or the penalized objective (observed-data log-likelihood plus the $q$ pseudocount penalty) when $\lambda>0$---falls below a tolerance of $10^{-6}$, \emph{and} (ii) the maximum change in the identifiable parameters $\mathbf r$ and $q$ is below the same tolerance; or until a maximum number of iterations is reached (default $1000$; the wrapper warns on non-convergence). Convergence is \emph{not} gated on movement along the non-identifiable paternal genotype decomposition. The reported log-likelihood is evaluated at the final returned parameters (after the last M-step). The recombination fractions are conditional maximum-likelihood estimates in $[\varepsilon, 0.5]$ (with $r=0.5$ permitted when the data indicate no linkage), whereas each $q_k^{(d)}$ is a penalized/maximum-a-posteriori estimate when $\lambda>0$ and an unpenalized maximum-likelihood estimate when $\lambda=0$. The emission error rate is a single user-specified scalar $\varepsilon$; the model does not fit a per-dam or per-marker error rate. After convergence, the final model parameters can be used to decode the maternal transmissions for each offspring. The Viterbi algorithm can be used to find the single most probable inheritance path, while the posterior probabilities ($\gamma_k(j)$) provide the probability of inheriting from each homolog at each locus. These decoded paths are valuable for downstream analyses, such as identifying specific crossover locations, error checking or quantitative trait loci (QTL) analysis.
 
-\paragraph{Computational Notes:} For $n$ offspring and $z$ markers, the forward-backward algorithm has a time complexity of $O(nz)$ and constant memory per individual. The computations are trivially parallelizable across offspring. To prevent numerical underflow, we use per-position scaling, where the individual log-likelihood is the sum of the logs of the scaling factors. Loci where the dam is homozygous are uninformative for phase but are retained in the model; for computational efficiency, long stretches of such markers can be collapsed without changing the likelihood.
+\paragraph{Computational Notes:} For $n$ offspring and $z$ markers, the forward-backward algorithm has a time complexity of $O(nz)$ and constant memory per individual. The computations are trivially parallelizable across offspring. To prevent numerical underflow, we use per-position scaling, where the individual log-likelihood is the sum of the logs of the scaling factors. Loci where the dam is homozygous are uninformative for phase but are retained in the model.
 
 \paragraph{Equivalent allele-state parameterization.} The hidden state defined above indexes the transmitted maternal homolog, so the transition matrix is phase-free and linkage phase enters only through the emission allele labels $A_k^{(d,j)}$ (Section~\ref{sec:transition}). The implementation uses a mathematically equivalent reparameterization in which the hidden state is the transmitted \emph{allele} ($a$ or $A$). Emissions then depend only on the transmitted allele and are phase-free, while the fixed allele-to-homolog labeling implied by the phase makes linkage phase enter the \emph{transition}: a nonrecombinant interval preserves the allele under coupling, so $\Pr(\text{same allele})=1-r_k$, and switches it under repulsion, so $\Pr(\text{same allele})=r_k$. The two formulations yield identical per-individual likelihoods and recombination estimates; the allele-state form avoids relabeling emissions whenever the phase changes, and homolog posteriors are recovered by a cumulative exclusive-or over repulsion intervals. Equivalently, in the M-step a recombination in interval $k$ is the homolog-index switch of Section~\ref{sec:transition}, which the allele-state code scores as an allele switch under coupling and an allele match under repulsion.
 
@@ -385,8 +385,10 @@ with the paternal gamete allele marginalized independently across markers (assum
 update is embedded in the same Baum--Welch loop used to estimate the \emph{shared} map
 \(\mathbf r\). For an offspring \(i\) of dam \(d\), let
 \[
-e^{A}_{ik}(j)=\Pr\!\big(Y_{ik}=y_{ik}\mid A_k^{(d,j)},\ \text{paternal gamete }A\big),\qquad
-e^{a}_{ik}(j)=\Pr\!\big(Y_{ik}=y_{ik}\mid A_k^{(d,j)},\ \text{paternal gamete }a\big)
+\begin{aligned}
+e^{A}_{ik}(j)&=\Pr\!\big(Y_{ik}=y_{ik}\mid A_k^{(d,j)},\ \text{paternal gamete }A\big),\\
+e^{a}_{ik}(j)&=\Pr\!\big(Y_{ik}=y_{ik}\mid A_k^{(d,j)},\ \text{paternal gamete }a\big)
+\end{aligned}
 \]
 be the error-convolved single-locus probabilities of the observed genotype given the transmitted
 maternal allele \(A_k^{(d,j)}\) and the paternal gamete allele (Eq.~\eqref{eq:emission-error}), so
@@ -576,8 +578,12 @@ Intervals whose endpoints lie in different components are returned as \emph{unre
 coupling; a graph with no supported edges yields all-singleton components and an explicit warning,
 never a resolved all-coupling result. We also report the per-component objective, whether greedy
 refinement converged, the number of components and their sizes, and the unresolved markers and
-intervals. Because phase is a hard call fixed downstream, phase uncertainty is not propagated; this is
-a limitation.
+intervals. A resolved adjacent interval is resolved either \emph{directly}---its own $(t,t{+}1)$
+supported edge---or \emph{indirectly, through a path} within its connected component; the reported
+per-interval support is the \emph{direct} adjacent-edge LOD, which may be zero for a path-resolved
+interval, and a \texttt{resolved\_via} field records ``direct'', ``path'', or ``unresolved''. A zero
+direct adjacent LOD is therefore not read as the total support for a path-resolved interval. Because
+phase is a hard call fixed downstream, phase uncertainty is not propagated; this is a limitation.
 
 \medskip
 \noindent\textbf{Multi-dam case.}
