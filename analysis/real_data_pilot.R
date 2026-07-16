@@ -92,6 +92,7 @@ PILOT <- list(
 )
 
 set.seed(SEED)
+options(warn = 1)             # surface warnings immediately (pilot diagnostics)
 LOGCON <- file(file.path(OUTDIR, "pilot_log.txt"), open = "at")
 log <- function(...) {
   msg <- sprintf("[%s] %s", format(Sys.time(), "%H:%M:%S"), paste0(..., collapse = ""))
@@ -486,7 +487,7 @@ run_workflow <- function(mode = c("smoke", "pilot"), n_target) {
         n_unresolved = sum(res_via == "unresolved", na.rm=TRUE),
         prop_resolved = round(mean(!is.na(pv)), 4),
         objective = round(ph$objective %||% NA_real_, 3),
-        converged = all(ph$component_converged %||% TRUE),
+        converged = isTRUE(ph$converged),
         stringsAsFactors = FALSE
       )
     }
@@ -564,8 +565,11 @@ run_workflow <- function(mode = c("smoke", "pilot"), n_target) {
 .block_report <- function(lg, thr, blk, bm) {
   blocks <- blk$blocks
   rows <- lapply(seq_along(blocks), function(i) {
-    b <- blocks[[i]]; fit <- b$fit
-    rr <- if (!is.null(fit) && !is.null(fit$r)) as.numeric(fit$r) else NA_real_
+    b <- blocks[[i]]
+    hm <- b$fit                         # hmm_map object (HSMap.map)
+    fit <- if (!is.null(hm)) hm$fit else NULL   # nested numeric fit
+    rr <- if (!is.null(fit) && !is.null(fit$r)) as.numeric(fit$r) else numeric(0)
+    qq <- if (!is.null(fit) && !is.null(fit$q)) as.numeric(fit$q) else numeric(0)
     data.frame(
       lg = lg, min_phase_lod = thr, block = b$block,
       n_markers = length(b$markers),
@@ -573,11 +577,14 @@ run_workflow <- function(mode = c("smoke", "pilot"), n_target) {
       conv_reason = if (!is.null(fit)) (fit$conv_reason %||% NA) else NA,
       objective_decreased = if (!is.null(fit)) isTRUE(fit$objective_decreased) else NA,
       iters = if (!is.null(fit)) (fit$iters %||% NA) else NA,
-      logLik = if (!is.null(fit)) round(fit$logLik %||% NA, 3) else NA,
-      penalized_obj = if (!is.null(fit)) round(fit$penalized_obj %||% NA, 3) else NA,
+      logLik = if (!is.null(fit)) round(fit$logLik %||% NA_real_, 3) else NA,
+      penalized_obj = if (!is.null(fit)) round(fit$penalized_obj %||% NA_real_, 3) else NA,
       r_min = if (length(rr)) round(min(rr, na.rm=TRUE),4) else NA,
       r_med = if (length(rr)) round(stats::median(rr, na.rm=TRUE),4) else NA,
       r_max = if (length(rr)) round(max(rr, na.rm=TRUE),4) else NA,
+      q_min = if (length(qq)) round(min(qq, na.rm=TRUE),4) else NA,
+      q_med = if (length(qq)) round(stats::median(qq, na.rm=TRUE),4) else NA,
+      q_max = if (length(qq)) round(max(qq, na.rm=TRUE),4) else NA,
       n_gaps = if (!is.null(bm)) sum(bm$interval_table$block == b$block &
                                      bm$interval_table$status %in%
                                      c("no_linkage_boundary"), na.rm=TRUE) else NA,
@@ -585,7 +592,7 @@ run_workflow <- function(mode = c("smoke", "pilot"), n_target) {
   })
   out <- do.call(rbind, rows)
   if (!is.null(bm)) {
-    out$total_linked_cM <- round(bm$total_linked_length %||% NA, 2)
+    out$total_linked_cM <- round(bm$total_linked_length %||% NA_real_, 2)
     out$n_segments <- bm$n_segments %||% NA
   }
   out
@@ -636,9 +643,9 @@ run_sensitivity <- function(n_target) {
                       error = function(e) NULL)
       bm <- if (!is.null(blk)) tryCatch(get_block_map(blk, "haldane", gap_r = PILOT$gap_r),
                                         error = function(e) NULL) else NULL
-      rr <- unlist(lapply(blk$blocks, function(b) if (!is.null(b$fit)) as.numeric(b$fit$r) else NULL))
-      qq <- unlist(lapply(blk$blocks, function(b) if (!is.null(b$fit)) as.numeric(b$fit$q %||% b$fit$pi_list) else NULL))
-      conv <- all(vapply(blk$blocks, function(b) if (!is.null(b$fit)) isTRUE(b$fit$converged) else TRUE, logical(1)))
+      rr <- unlist(lapply(blk$blocks, function(b) if (!is.null(b$fit$fit)) as.numeric(b$fit$fit$r) else NULL))
+      qq <- unlist(lapply(blk$blocks, function(b) if (!is.null(b$fit$fit)) as.numeric(b$fit$fit$q) else NULL))
+      conv <- all(vapply(blk$blocks, function(b) if (!is.null(b$fit$fit)) isTRUE(b$fit$fit$converged) else TRUE, logical(1)))
       ngap <- if (!is.null(bm)) sum(bm$interval_table$status == "no_linkage_boundary", na.rm=TRUE) else NA
       rows[[length(rows)+1]] <- data.frame(
         lg = lg, min_phase_lod = thr, n_components = ncomp, prop_resolved = presolved,
