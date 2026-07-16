@@ -148,7 +148,10 @@ static inline PairOpt grid_refine_max(F f, double lo, double hi, int ngrid,
     if (gf > bf) { bf = gf; bx = gx; }
   }
   o.r_hat = bx; o.f_hat = bf;
-  o.at_half = (bx >= hi - std::max(tol, 1e-9));
+  // The no-linkage flag uses a FIXED boundary tolerance, independent of the optimizer
+  // `tol`, so a coarse optimizer setting can never flag an r substantially below 0.5.
+  static const double NO_LINKAGE_TOL = 1e-6;
+  o.at_half = (bx >= hi - NO_LINKAGE_TOL);
 
   // conservative multimodality flag: >=2 local maxima whose GRID objective is within
   // a small margin of the best grid objective (a heads-up, not a guarantee).

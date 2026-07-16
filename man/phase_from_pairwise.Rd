@@ -32,7 +32,9 @@ Markers absent for a dam are dropped with a warning.}
 \item{min_phase_lod}{Minimum phase LOD for an edge to be treated as supported
 (default \code{0}). Even at the default, edges with zero/near-zero evidence are
 excluded (see \code{tie_tol}); an edge counts only when its LOD strictly exceeds
-\code{max(min_phase_lod, tie_tol)}.}
+\code{max(min_phase_lod, tie_tol)}. \strong{The default \code{0} is a backward-
+compatibility choice, not a statistically validated threshold}; a suitable value
+awaits a simulation study.}
 
 \item{tie_tol}{Numerical tolerance below which a coupling-vs-repulsion LOD is
 treated as an unresolved tie (default \code{1e-8}).}
@@ -53,7 +55,11 @@ For a single dam, an \code{HSMap.phased} with (among others): \code{order};
 \code{clusters} (0/1 homolog labels, meaningful only within a component);
 \code{component} (component ID per marker); \code{phase_vec} (length
 \code{T-1}; 1=coupling, 0=repulsion for resolved adjacent intervals, \code{NA}
-for unresolved ones); \code{resolved_interval} and \code{interval_support};
+for unresolved ones); \code{resolved_interval}; \code{interval_support} (the
+\emph{direct} adjacent-edge phase LOD, \code{NA} if that edge is unsupported);
+\code{direct_edge} (whether the adjacent edge is itself supported); \code{resolved_via}
+(\code{"direct"}, \code{"path"}, or \code{"unresolved"} -- a path-resolved interval
+can have zero direct adjacent LOD);
 \code{n_components}, \code{component_sizes}; \code{unresolved_markers},
 \code{unresolved_intervals}; \code{objective}, \code{component_objective},
 \code{converged}, \code{n_flips}. Multiple dams return an
