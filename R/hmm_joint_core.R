@@ -72,7 +72,7 @@ hmm_map_joint <- function(
     dam = "all",
     threads = NULL,
     epsilon = 0.01,
-    tol = 1e-4,
+    tol = 1e-6,
     pi_mode = c("per_marker", "HWE"),
     paternal_mode = c("gametic", "HWE", "per_marker", "two_locus"),
     r_start = 0.05,
