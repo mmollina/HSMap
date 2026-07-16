@@ -32,7 +32,7 @@
 #'   \code{c("gametic","HWE","per_marker","two_locus")}, default \code{"gametic"}.
 #'   \describe{
 #'     \item{\code{"gametic"}}{The identifiable model. The paternal contribution
-#'       is a single per-marker (and per-dam) sire gametic allele frequency
+#'       is a single per-marker (and per-dam) paternal gametic frequency
 #'       \eqn{q_k = \Pr(\text{paternal gamete transmits } A) = \pi_{AA}+\tfrac12\pi_{Aa}},
 #'       the only paternal quantity the half-sib offspring likelihood identifies.
 #'       Returned in \code{fit$q}.}
@@ -48,30 +48,34 @@
 #'     \item{\code{"two_locus"}}{Disabled (informative error). The 10-class
 #'       two-locus mixture does not identify paternal linkage disequilibrium.}
 #'   }
-#' @param q_prior_in Optional gametic prior on the sire allele frequency
+#' @param q_prior_in Optional gametic prior on the paternal gametic frequency
 #'   \eqn{q_k}, supplied as \strong{pseudocounts}. One of: \code{NULL} (default;
-#'   uses the historical strength \code{lambda = 20}, i.e. \eqn{\alpha=\beta=10}
-#'   at prior mean \eqn{0.5}); a numeric scalar or length-\eqn{T} vector of prior means
-#'   \eqn{q^{(0)}_k} (total pseudocount \code{lambda}); or \code{list(alpha=,
-#'   beta=)} giving explicit non-negative pseudocounts (scalars or length-\eqn{T}).
-#'   Per-marker means are supported; the total pseudocount \eqn{\alpha+\beta} must
-#'   be constant across markers. The paternal M-step is the penalized (MAP) update
+#'   uses the historical strength \code{lambda = 20}, i.e. \eqn{\alpha=\beta=10},
+#'   pseudocount target \eqn{0.5}); a numeric scalar or length-\eqn{T} vector of
+#'   pseudocount targets \eqn{q^{(0)}_k} (total pseudocount \code{lambda}); or
+#'   \code{list(alpha=, beta=)} giving explicit non-negative pseudocounts (scalars
+#'   or length-\eqn{T}). Per-marker targets are supported; the total pseudocount
+#'   \eqn{\alpha+\beta} must be constant across markers. The paternal M-step is the
+#'   penalized (MAP) update
 #'   \deqn{\hat q_k = (N_{A,k}+\alpha_k)/(N_{A,k}+N_{a,k}+\alpha_k+\beta_k),}
 #'   where \eqn{N_{A,k}, N_{a,k}} are the expected paternal A-/a-gamete counts;
 #'   it maximizes \eqn{\log L + \sum_k[\alpha_k\log q_k + \beta_k\log(1-q_k)]}.
 #'   \strong{\eqn{\alpha,\beta} are pseudocounts, not Beta shape parameters}: the
 #'   equivalent probability prior is \eqn{\mathrm{Beta}(\alpha_k+1,\beta_k+1)}, so
 #'   \eqn{\alpha=\beta=0} is the uniform \eqn{\mathrm{Beta}(1,1)} prior (MAP =
-#'   unregularized fit). With a numeric mean, \eqn{\alpha_k=\lambda q^{(0)}_k} and
-#'   \eqn{\beta_k=\lambda(1-q^{(0)}_k)}. Takes precedence over \code{pi_prior_in}.
+#'   unregularized fit). A numeric \eqn{q^{(0)}_k} is the \strong{pseudocount
+#'   target (the prior mode} \eqn{q^{(0)}_k=\alpha_k/(\alpha_k+\beta_k)}, \strong{not
+#'   the Beta-prior mean} \eqn{(\alpha_k+1)/(\alpha_k+\beta_k+2)}): it sets
+#'   \eqn{\alpha_k=\lambda q^{(0)}_k} and \eqn{\beta_k=\lambda(1-q^{(0)}_k)}. Takes
+#'   precedence over \code{pi_prior_in}.
 #' @param r_start Initial recombination fraction for all intervals.
 #'   Default \code{0.05}.
 #' @param lambda Default total pseudocount \eqn{\alpha+\beta} for the gametic
-#'   paternal prior when \code{q_prior_in} is \code{NULL} or a numeric mean.
-#'   Default \code{20} (\eqn{\alpha=\beta=10} at prior mean \eqn{0.5}). This value
-#'   is the historical default and is kept for backward compatibility only; it is
-#'   \strong{not} a statistically validated recommendation. It can over-shrink
-#'   \eqn{q} at extreme sire allele frequencies (a separate simulation study on
+#'   paternal prior when \code{q_prior_in} is \code{NULL} or a numeric target.
+#'   Default \code{20} (\eqn{\alpha=\beta=10}, pseudocount target \eqn{0.5}). This
+#'   value is the historical default and is kept for backward compatibility only;
+#'   it is \strong{not} a statistically validated recommendation. It can over-shrink
+#'   \eqn{q} at extreme paternal gametic frequencies (a separate simulation study on
 #'   the corrected engine is needed to choose a default). See \code{q_prior_in};
 #'   set \eqn{\alpha=\beta=0} for no regularization.
 #' @param maxit Maximum EM iterations. Default \code{200}.
@@ -111,7 +115,7 @@
 #'
 #' @section Paternal identifiability:
 #' The offspring likelihood depends on the paternal contribution \emph{only}
-#' through the sire gametic allele frequency \eqn{q_k = \pi_{AA} + \tfrac12
+#' through the paternal gametic frequency \eqn{q_k = \pi_{AA} + \tfrac12
 #' \pi_{Aa}}: any two genotype-frequency vectors with the same \eqn{q} give the
 #' same likelihood and the same fitted \eqn{\mathbf r}. The \emph{regularized}
 #' estimate does depend on the prior. The \code{"gametic"} model applies a
@@ -179,7 +183,7 @@ hmm_map <- function(
 
   # M1: resolve the public paternal model to the internal engine. `gametic`
   # (default) and `HWE` are the same identifiable estimator (parameterized by
-  # q_k); `per_marker` and `two_locus` are disabled at the public API.
+  # q_k); `per_marker` warns and routes to `gametic`, while `two_locus` is disabled.
   eff_paternal <- .hsmap_paternal_engine(paternal_mode)
 
   if (!inherits(x, "HSMap.data"))
@@ -357,15 +361,15 @@ hmm_map <- function(
 # allele frequency q_k = P(paternal gamete transmits A) = pi_AA + 0.5*pi_Aa.
 # `gametic` (default) and `HWE` are the same identifiable estimator and both use
 # the HWE engine, which is parameterized by a single per-marker allele frequency
-# p_k identical to q_k. `per_marker` (free 3 genotype frequencies) and
-# `two_locus` (10-class interval mixture) are non-identifiable and are disabled
-# at the public API; the legacy engines remain reachable via the internal
+# p_k identical to q_k. `per_marker` (free 3 genotype frequencies) is deprecated: it
+# warns and routes to `gametic`. `two_locus` (10-class interval mixture) is disabled.
+# Both are non-identifiable; the legacy engines remain reachable via the internal
 # `hmm_hs_cpp_parallel()` for reproducing historical results.
 .hsmap_paternal_engine <- function(paternal_mode) {
   if (identical(paternal_mode, "two_locus"))
     stop("paternal_mode = 'two_locus' is disabled: the two-locus paternal mixture does ",
          "not identify paternal linkage disequilibrium (coupling and repulsion ",
-         "double-heterozygous sires are likelihood-indistinguishable). ",
+         "double-heterozygous paternal genotypes are likelihood-indistinguishable). ",
          "Use paternal_mode = 'gametic'.", call. = FALSE)
   if (identical(paternal_mode, "per_marker"))
     warning("paternal_mode = 'per_marker' is deprecated: the three paternal genotype ",
@@ -390,12 +394,13 @@ hmm_map <- function(
 # equivalently it is the posterior MODE under a Beta(alpha_k + 1, beta_k + 1)
 # prior (alpha, beta are pseudocounts, not Beta shape parameters). Here
 # alpha_k = lambda * q0_k, beta_k = lambda * (1 - q0_k), and the total pseudocount
-# lambda = alpha_k + beta_k. Per-marker prior means q0_k are supported; the total
-# pseudocount (alpha + beta) must be common across markers (the engine takes a
-# scalar lambda).
+# lambda = alpha_k + beta_k. Here q0_k = alpha_k/(alpha_k + beta_k) is the pseudocount
+# target (the prior MODE), not the Beta-prior mean (alpha_k+1)/(alpha_k+beta_k+2).
+# Per-marker targets q0_k are supported; the total pseudocount (alpha + beta) must
+# be common across markers (the engine takes a scalar lambda).
 #
 # Accepts: NULL (use lambda_default, engine's uniform prior); a numeric scalar or
-# length-T vector of prior means q0 (total pseudocount = lambda_default); or
+# length-T vector of pseudocount targets q0 (total pseudocount = lambda_default); or
 # list(alpha=, beta=) with scalar or length-T entries (explicit pseudocounts).
 .hsmap_q_prior_to_engine <- function(q_prior, lambda_default, T) {
   if (is.null(q_prior)) return(list(pi_prior = NULL, lambda = lambda_default))
@@ -410,7 +415,7 @@ hmm_map <- function(
     q0 <- if (length(q_prior) == 1L) rep(q_prior, T) else q_prior
     if (length(q0) != T) stop("numeric `q_prior` must have length 1 or T = ", T, ".", call. = FALSE)
     if (any(!is.finite(q0) | q0 <= 0 | q0 >= 1))
-      stop("`q_prior` means must be in (0, 1).", call. = FALSE)
+      stop("`q_prior` pseudocount targets must be in (0, 1).", call. = FALSE)
     return(list(pi_prior = hwe_cols(q0), lambda = lambda_default))
   }
 
@@ -427,11 +432,11 @@ hmm_map <- function(
       stop("mixed zero / non-zero total pseudocount (alpha + beta) across markers is not supported.", call. = FALSE)
     if (diff(range(conc)) > 1e-8 * max(conc))
       stop("per-marker total pseudocount (alpha + beta) must be constant across markers ",
-           "in this version; vary the mean alpha/(alpha+beta) but keep alpha+beta fixed.",
+           "in this version; vary the target alpha/(alpha+beta) but keep alpha+beta fixed.",
            call. = FALSE)
     return(list(pi_prior = hwe_cols(a / conc), lambda = conc[1]))
   }
 
-  stop("`q_prior` must be NULL, a numeric vector of prior means, or list(alpha=, beta=).",
+  stop("`q_prior` must be NULL, a numeric vector of pseudocount targets, or list(alpha=, beta=).",
        call. = FALSE)
 }

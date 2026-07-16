@@ -7,4 +7,5 @@
 ^\.claude$
 ^\.git$
 ^\.gitignore$
+^\.gitattributes$
 ^\.positai$

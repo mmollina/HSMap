@@ -55,7 +55,7 @@ allele frequency; see \code{paternal_mode}).}
 \code{c("gametic","HWE","per_marker","two_locus")}, default \code{"gametic"}.
 \describe{
 \item{\code{"gametic"}}{The identifiable model. The paternal contribution
-is a single per-marker (and per-dam) sire gametic allele frequency
+is a single per-marker (and per-dam) paternal gametic frequency
 \eqn{q_k = \Pr(\text{paternal gamete transmits } A) = \pi_{AA}+\tfrac12\pi_{Aa}},
 the only paternal quantity the half-sib offspring likelihood identifies.
 Returned in \code{fit$q}.}
@@ -76,32 +76,36 @@ two-locus mixture does not identify paternal linkage disequilibrium.}
 Default \code{0.05}.}
 
 \item{lambda}{Default total pseudocount \eqn{\alpha+\beta} for the gametic
-paternal prior when \code{q_prior_in} is \code{NULL} or a numeric mean.
-Default \code{20} (\eqn{\alpha=\beta=10} at prior mean \eqn{0.5}). This value
-is the historical default and is kept for backward compatibility only; it is
-\strong{not} a statistically validated recommendation. It can over-shrink
-\eqn{q} at extreme sire allele frequencies (a separate simulation study on
+paternal prior when \code{q_prior_in} is \code{NULL} or a numeric target.
+Default \code{20} (\eqn{\alpha=\beta=10}, pseudocount target \eqn{0.5}). This
+value is the historical default and is kept for backward compatibility only;
+it is \strong{not} a statistically validated recommendation. It can over-shrink
+\eqn{q} at extreme paternal gametic frequencies (a separate simulation study on
 the corrected engine is needed to choose a default). See \code{q_prior_in};
 set \eqn{\alpha=\beta=0} for no regularization.}
 
 \item{maxit}{Maximum EM iterations. Default \code{200}.}
 
-\item{q_prior_in}{Optional gametic prior on the sire allele frequency
+\item{q_prior_in}{Optional gametic prior on the paternal gametic frequency
 \eqn{q_k}, supplied as \strong{pseudocounts}. One of: \code{NULL} (default;
-uses the historical strength \code{lambda = 20}, i.e. \eqn{\alpha=\beta=10}
-at prior mean \eqn{0.5}); a numeric scalar or length-\eqn{T} vector of prior means
-\eqn{q^{(0)}_k} (total pseudocount \code{lambda}); or \code{list(alpha=,
-  beta=)} giving explicit non-negative pseudocounts (scalars or length-\eqn{T}).
-Per-marker means are supported; the total pseudocount \eqn{\alpha+\beta} must
-be constant across markers. The paternal M-step is the penalized (MAP) update
+uses the historical strength \code{lambda = 20}, i.e. \eqn{\alpha=\beta=10},
+pseudocount target \eqn{0.5}); a numeric scalar or length-\eqn{T} vector of
+pseudocount targets \eqn{q^{(0)}_k} (total pseudocount \code{lambda}); or
+\code{list(alpha=, beta=)} giving explicit non-negative pseudocounts (scalars
+or length-\eqn{T}). Per-marker targets are supported; the total pseudocount
+\eqn{\alpha+\beta} must be constant across markers. The paternal M-step is the
+penalized (MAP) update
 \deqn{\hat q_k = (N_{A,k}+\alpha_k)/(N_{A,k}+N_{a,k}+\alpha_k+\beta_k),}
 where \eqn{N_{A,k}, N_{a,k}} are the expected paternal A-/a-gamete counts;
 it maximizes \eqn{\log L + \sum_k[\alpha_k\log q_k + \beta_k\log(1-q_k)]}.
 \strong{\eqn{\alpha,\beta} are pseudocounts, not Beta shape parameters}: the
 equivalent probability prior is \eqn{\mathrm{Beta}(\alpha_k+1,\beta_k+1)}, so
 \eqn{\alpha=\beta=0} is the uniform \eqn{\mathrm{Beta}(1,1)} prior (MAP =
-unregularized fit). With a numeric mean, \eqn{\alpha_k=\lambda q^{(0)}_k} and
-\eqn{\beta_k=\lambda(1-q^{(0)}_k)}. Takes precedence over \code{pi_prior_in}.}
+unregularized fit). A numeric \eqn{q^{(0)}_k} is the \strong{pseudocount
+target (the prior mode} \eqn{q^{(0)}_k=\alpha_k/(\alpha_k+\beta_k)}, \strong{not
+the Beta-prior mean} \eqn{(\alpha_k+1)/(\alpha_k+\beta_k+2)}): it sets
+\eqn{\alpha_k=\lambda q^{(0)}_k} and \eqn{\beta_k=\lambda(1-q^{(0)}_k)}. Takes
+precedence over \code{pi_prior_in}.}
 
 \item{pi_prior_in}{Optional 3 x T paternal prior (legacy). Only its implied
 gametic allele frequency \eqn{q^{(0)}_k = \pi^{(0)}_{AA} +
@@ -151,7 +155,7 @@ interval is also computed across the selected dams (see \emph{Consensus r}).
 \section{Paternal identifiability}{
 
 The offspring likelihood depends on the paternal contribution \emph{only}
-through the sire gametic allele frequency \eqn{q_k = \pi_{AA} + \tfrac12
+through the paternal gametic frequency \eqn{q_k = \pi_{AA} + \tfrac12
 \pi_{Aa}}: any two genotype-frequency vectors with the same \eqn{q} give the
 same likelihood and the same fitted \eqn{\mathbf r}. The \emph{regularized}
 estimate does depend on the prior. The \code{"gametic"} model applies a

@@ -1,6 +1,6 @@
 Package: HSMap
 Type: Package
-Title: Map construction in half-sib populations
+Title: Map Construction in Half-Sib Populations
 Version: 0.0.0.9000
 Authors@R: c(
     person(

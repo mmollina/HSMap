@@ -1,6 +1,6 @@
 # Tests for the identifiable paternal gametic allele-frequency model (M1).
 #
-# The paternal contribution enters the likelihood only through the sire gametic
+# The paternal contribution enters the likelihood only through the paternal gametic
 # allele frequency q_k = P(paternal gamete transmits A) = pi_AA + 0.5*pi_Aa.
 # `gametic` (default) and `HWE` are the same identifiable estimator; the free
 # 3-genotype `per_marker` model and the 10-class `two_locus` model are
@@ -181,7 +181,7 @@ test_that("gametic recovers q near 0 and near 1 (no shrinkage)", {
   expect_gt(fit_mean_q(0.95, 4), 0.85)   # true q ~ 0.95
 })
 
-test_that("uninformative markers fall back to the q prior mean", {
+test_that("uninformative markers fall back to the q pseudocount target", {
   RcppParallel::setThreadOptions(numThreads = 1)
   set.seed(5); Tm <- 20; r_true <- rep(0.05, Tm - 1)
   sim <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 200,
@@ -196,7 +196,7 @@ test_that("uninformative markers fall back to the q prior mean", {
   expect_equal(m$fit$q[[10]], 0.3, tolerance = 1e-6)
 })
 
-test_that("no shrinkage (lambda = 0): the prior mean is ignored at convergence", {
+test_that("no shrinkage (lambda = 0): the pseudocount target is ignored at convergence", {
   RcppParallel::setThreadOptions(numThreads = 1)
   set.seed(9); Tm <- 25; r_true <- runif(Tm - 1, 0.02, 0.12)
   sim <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 300,
@@ -214,7 +214,7 @@ test_that("no shrinkage (lambda = 0): the prior mean is ignored at convergence",
   expect_equal(as.numeric(m_a$fit$q), as.numeric(m_b$fit$q), tolerance = 1e-4)
 })
 
-test_that("marker-specific q priors set uninformative markers to their own means", {
+test_that("marker-specific q priors set uninformative markers to their own targets", {
   RcppParallel::setThreadOptions(numThreads = 1)
   set.seed(6); Tm <- 20; r_true <- rep(0.05, Tm - 1)
   sim <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 150,
@@ -374,7 +374,7 @@ test_that("q_prior_list: a single shared spec applies to all dams", {
                             paternal_mode = "gametic", q_prior_list = per,
                             tol = 1e-6, maxit = 300)
   expect_equal(as.numeric(m_shared$fit$r), as.numeric(m_perdam$fit$r), tolerance = 1e-10)
-  # a single numeric mean also applies to all dams
+  # a single numeric target also applies to all dams
   m_num <- hmm_map_joint(j$dat, phased = j$oph, dam = "all", epsilon = 0.01,
                          paternal_mode = "gametic", q_prior_list = 0.3, tol = 1e-6, maxit = 200)
   expect_length(m_num$fit$q_list, 3L)
