@@ -179,7 +179,7 @@ hmm_map <- function(
 
   # M1: resolve the public paternal model to the internal engine. `gametic`
   # (default) and `HWE` are the same identifiable estimator (parameterized by
-  # q_k); `per_marker` and `two_locus` are disabled at the public API.
+  # q_k); `per_marker` warns and routes to `gametic`, while `two_locus` is disabled.
   eff_paternal <- .hsmap_paternal_engine(paternal_mode)
 
   if (!inherits(x, "HSMap.data"))
@@ -357,9 +357,9 @@ hmm_map <- function(
 # allele frequency q_k = P(paternal gamete transmits A) = pi_AA + 0.5*pi_Aa.
 # `gametic` (default) and `HWE` are the same identifiable estimator and both use
 # the HWE engine, which is parameterized by a single per-marker allele frequency
-# p_k identical to q_k. `per_marker` (free 3 genotype frequencies) and
-# `two_locus` (10-class interval mixture) are non-identifiable and are disabled
-# at the public API; the legacy engines remain reachable via the internal
+# p_k identical to q_k. `per_marker` (free 3 genotype frequencies) is deprecated: it
+# warns and routes to `gametic`. `two_locus` (10-class interval mixture) is disabled.
+# Both are non-identifiable; the legacy engines remain reachable via the internal
 # `hmm_hs_cpp_parallel()` for reproducing historical results.
 .hsmap_paternal_engine <- function(paternal_mode) {
   if (identical(paternal_mode, "two_locus"))
