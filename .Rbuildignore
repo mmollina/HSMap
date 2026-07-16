@@ -4,6 +4,7 @@
 ^doc(/|$)
 ^REASSESSMENT\.md$
 ^dev(/|$)
+^analysis(/|$)
 ^\.claude$
 ^\.git$
 ^\.gitignore$
