@@ -53,3 +53,50 @@ test_that("heterogeneity test detects dams with different maps", {
   expect_gt(het$LR, stats::qchisq(0.99, df = 1))      # strong, non-flaky signal
   expect_lt(het$p_value, 0.01)
 })
+
+
+# Milestone 5: honest metadata for the conditional global-scale test.
+test_that("heterogeneity test reports honest conditional global-scale metadata", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  set.seed(303); Tm <- 30
+  sim <- sim_multi_pop(T_markers = Tm, n_pops = 3, n_ind_per_pop = c(120, 120, 120),
+                       marker_intersection = 1, r_vec = rep(0.05, Tm - 1),
+                       phase_mode = "random", repulsion_rate = 0.3,
+                       maternal_geno_mode = "all_het",
+                       paternal_pA_base = 0.4, error_rate = 0.01, seed = 303)
+  dat <- make_dat(sim); mk <- sim$truth$markers_union
+  jm  <- hmm_map(dat, phased = oracle_multi(sim, mk), dam = "all",
+                 epsilon = 0.01, paternal_mode = "gametic", maxit = 200)
+  het <- test_map_heterogeneity(dat, jm)
+
+  # test type + hypothesis structure
+  expect_identical(het$test_type, "conditional global-scale LRT")
+  expect_false(het$interval_specific)                       # NOT interval-specific
+  expect_identical(het$n_params_null, 1L)                   # one common global scale
+  expect_identical(het$n_params_alt, 3L)                    # one scale per dam (D=3)
+  expect_identical(het$df, het$n_params_alt - het$n_params_null)  # df = D - 1
+  # conditional-on and calibration are stated
+  expect_identical(het$calibration, "asymptotic")
+  expect_true(any(grepl("phase", het$conditional_on)))
+  expect_true(any(grepl("paternal", het$conditional_on)))
+  # per-dam boundary flag present and (here) not at a boundary
+  expect_true("at_boundary" %in% names(het$per_dam))
+  expect_false(het$any_boundary)
+})
+
+test_that("a boundary eta estimate is flagged", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  set.seed(404); Tm <- 25
+  sim <- sim_multi_pop(T_markers = Tm, n_pops = 2, n_ind_per_pop = c(120, 120),
+                       marker_intersection = 1, r_vec = rep(0.05, Tm - 1),
+                       phase_mode = "random", repulsion_rate = 0.3,
+                       maternal_geno_mode = "all_het",
+                       paternal_pA_base = 0.4, error_rate = 0.01, seed = 404)
+  dat <- make_dat(sim); mk <- sim$truth$markers_union
+  jm  <- hmm_map(dat, phased = oracle_multi(sim, mk), dam = "all",
+                 epsilon = 0.01, paternal_mode = "gametic", maxit = 200)
+  # a narrow eta_range forces the optimum to the boundary -> flagged
+  het <- test_map_heterogeneity(dat, jm, eta_range = c(1.5, 3))
+  expect_true(het$any_boundary)
+  expect_true(any(het$per_dam$at_boundary))
+})

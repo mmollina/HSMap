@@ -10,7 +10,7 @@ hmm_map_joint(
   dam = "all",
   threads = NULL,
   epsilon = 0.01,
-  tol = 1e-04,
+  tol = 1e-06,
   pi_mode = c("per_marker", "HWE"),
   paternal_mode = c("gametic", "HWE", "per_marker", "two_locus"),
   r_start = 0.05,
