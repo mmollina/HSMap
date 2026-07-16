@@ -43,8 +43,8 @@ identifiable paternal model.}
 \item{paternal_mode}{Paternal model, one of
 \code{c("gametic","HWE","per_marker","two_locus")}, default \code{"gametic"}.
 \code{"gametic"} (and its identical alias \code{"HWE"}) parameterizes the
-paternal contribution by the single identifiable per-marker, per-dam sire
-gametic allele frequency \eqn{q_k = \pi_{AA} + \tfrac12\pi_{Aa}}, returned in
+paternal contribution by the single identifiable per-marker, per-dam paternal
+gametic frequency \eqn{q_k^{(d)} = \pi_{AA} + \tfrac12\pi_{Aa}}, returned in
 \code{fit$q_list}. \code{"per_marker"} is deprecated (accepted with a warning
 and routed to \code{"gametic"}); \code{"two_locus"} is disabled with an
 informative error. See \code{\link{hmm_map}}.}
@@ -52,24 +52,24 @@ informative error. See \code{\link{hmm_map}}.}
 \item{r_start}{Initial recombination fraction for all intervals. Default \code{0.05}.}
 
 \item{lambda}{Default total pseudocount \eqn{\alpha+\beta} for the gametic
-paternal prior when \code{q_prior_list} is \code{NULL} or a numeric mean.
-Default \code{20} (\eqn{\alpha=\beta=10} at prior mean \eqn{0.5}); the
+paternal prior when \code{q_prior_list} is \code{NULL} or a numeric target.
+Default \code{20} (\eqn{\alpha=\beta=10}, pseudocount target \eqn{0.5}); the
 historical default, kept for backward compatibility only and \strong{not} a
 statistically validated recommendation. See \code{\link{hmm_map}}'s
 \code{q_prior_in}.}
 
 \item{maxit}{Maximum EM iterations. Default \code{200}.}
 
-\item{q_prior_list}{Optional gametic pseudocount prior on \eqn{q_k}, shared
-across dams or per dam. Either a single spec applied to all dams (a numeric
-mean vector, or \code{list(alpha=, beta=)} pseudocounts; see
-\code{\link{hmm_map}}'s \code{q_prior_in}) or a per-dam list of such specs.
-A per-dam list must supply \strong{exactly one spec per requested dam}: a
-named list must name every requested dam and no others (missing or unknown
-names are an error); an unnamed list must have one entry per requested dam,
-in the requested-dam order. Per-dam prior means are supported; the total
-pseudocount \eqn{\alpha+\beta} must be common across dams. Takes precedence
-over \code{pi_prior_list}.}
+\item{q_prior_list}{Optional gametic pseudocount prior on the dam-specific
+\eqn{q_k^{(d)}}, shared across dams or per dam. Either a single spec applied to
+all dams (a numeric vector of pseudocount targets, or \code{list(alpha=,
+  beta=)} pseudocounts; see \code{\link{hmm_map}}'s \code{q_prior_in}) or a
+per-dam list of such specs. A per-dam list must supply \strong{exactly one spec
+per requested dam}: a named list must name every requested dam and no others
+(missing or unknown names are an error); an unnamed list must have one entry
+per requested dam, in the requested-dam order. Per-dam pseudocount targets are
+supported; the total pseudocount \eqn{\alpha+\beta} must be common across dams.
+Takes precedence over \code{pi_prior_list}.}
 
 \item{pi_prior_list, Pi_prior_list}{Optional named lists of per-dam priors
 (\code{3 x T} for Model A, \code{10 x (T-1)} for \code{two_locus}).}
@@ -79,7 +79,7 @@ An object of class \code{c("HSMap.map.joint","HSMap.map")} with
 \code{order} (shared), \code{dams}, \code{phase_list} (per dam),
 \code{fit} (the C++ result: shared \code{r}, per-dam \code{pi_list}, etc.) and
 a top-level \code{r}. The canonical per-dam paternal output is
-\code{fit$q_list} (sire gametic allele frequencies \eqn{q_k}).
+\code{fit$q_list} (dam-specific paternal gametic frequencies \eqn{q_k^{(d)}}).
 \strong{\code{fit$pi_list} is deprecated for direct interpretation}: it is
 retained only as the derived HWE-form emission table and is \emph{not} an
 estimate of paternal genotype frequencies. Because it carries \code{fit$r}

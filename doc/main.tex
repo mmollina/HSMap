@@ -26,7 +26,7 @@ We infer maternal recombination and linkage phase in diploid half-sib families w
 We model inheritance along ordered markers with a hidden Markov model (HMM), where the latent state at marker $t$ encodes which maternal homolog was transmitted to each offspring. Transitions between states are governed by the recombination fractions between adjacent markers, and emissions are the offspring genotype likelihoods given the transmitted maternal homolog and a per-dam error model. Parameters are estimated by maximum likelihood using forward and backward recursions with per-position scaling \citep{Rabiner1989}. To avoid introducing an additional latent layer for phase, we infer each dam’s chromosomal phase externally and hold it fixed during HMM fitting. When several dams are analyzed together, we fit one recombination map across families, while phase and emissions remain dam specific. Pooling families in a single framework increases effective sample size for estimating recombination and improves precision, especially when individual families are small.
 
 
-We work under the following minimal assumptions: ($i$) the marker order is fixed; ($ii$) meioses are independent across offspring; ($iii$) a single female recombination map is shared across dams; ($iv$) genotyping errors are independent across loci and individuals; ($v$) allele transmission follows Mendelian segregation without distortion; ($vi$) the paternal contribution enters the offspring likelihood only through a single per-marker \emph{sire gametic allele frequency} $q_k=\Pr(\text{the paternal gamete transmits allele }A)$, which is integrated out at each marker (detailed later); and ($vii$) the paternal gametic alleles are integrated \emph{independently across markers}, i.e.\ paternal linkage disequilibrium is not modeled.
+We work under the following minimal assumptions: ($i$) the marker order is fixed; ($ii$) meioses are independent across offspring; ($iii$) a single female recombination map is shared across dams; ($iv$) genotyping errors are independent across loci and individuals; ($v$) allele transmission follows Mendelian segregation without distortion; ($vi$) for each dam $d$, the paternal contribution enters the offspring likelihood only through a single per-marker, dam-specific \emph{paternal gametic frequency} $q_k^{(d)}=\Pr(\text{a paternal gamete contributing to an offspring of dam }d\text{ transmits allele }A)$; in an open-pollinated family this is generally a dam-specific pollen-pool probability that may average over several unknown sires, rather than the allele frequency of a single sire, and each $q_k^{(d)}$ is a parameter estimated in the EM (detailed later); and ($vii$) at each marker the paternal gamete allele is marginalized conditional on $q_k^{(d)}$, \emph{independently across markers}, i.e.\ paternal linkage disequilibrium across markers is not modeled.
 
 \subsection{Model Setup and Notation}
 Let $M_1,\ldots,M_z$ denote $z$ ordered markers along a chromosome. The key parameter vector is $\mathbf r=(r_1,\ldots,r_{z-1})$, where $r_k\in[0,0.5]$ is the recombination fraction between markers $M_k$ and $M_{k+1}$. Let $n$ denote the total number of offspring considered across all dams.
@@ -59,7 +59,12 @@ phase configurations. Specifically, each dam $d$ has a phase configuration
 $\boldsymbol{\psi}^{(d)}=(\psi_1^{(d)},\ldots,\psi_{z-1}^{(d)})$, where $\psi_k^{(d)}$
 records whether the two alleles at markers $(k,k{+}1)$ are in coupling or repulsion.
 For offspring $i$ of dam $d$, the hidden state $S_{ik}^{(d)}\in\{1,2\}$ indicates which
-maternal homolog was transmitted at marker $k$.
+maternal homolog was transmitted at marker $k$. In the joint model the recombination map
+$\mathbf r=(r_1,\ldots,r_{z-1})$ is \emph{shared} across dams, whereas the linkage phase
+$\boldsymbol{\psi}^{(d)}$, the paternal gametic frequencies $q_k^{(d)}$, and hence the emissions
+$b_k^{(i)}(j)$ are all \emph{dam-specific}. Consequently, in the EM the recombination counts are
+pooled across dams (they inform the shared $\mathbf r$), while the paternal gamete counts that
+update each $q_k^{(d)}$ use only that dam's offspring (Section~\ref{sec:par_cont}).
 
 Given the dam's genotypes $\{G_k^{(d)}\}$, the phase array $\boldsymbol{\psi}^{(d)}$
 induces a consistent labeling of alleles on the two maternal homologs along the marker order.
@@ -75,7 +80,7 @@ represented by the ordered pairs
 \]
 for $k=1,2,3$, respectively.
 
-\subsection{Emission Model with an Unknown Sire}
+\subsection{Emission Model with an Unknown Paternal Contribution}
 \label{emission}
 The emission distribution links the observed offspring genotype $y_{ik}$ to the hidden maternal
 state. We define
@@ -86,13 +91,15 @@ the probability of observing $y_{ik}$ given that offspring $i$ inherited materna
 at marker $k$. Conditional on $S_{ik}^{(d)}=j$, the maternally transmitted allele at locus $k$
 is the allele carried on that homolog, $A_k^{(d,j)}\in\{A,a\}$.
 
-Because the sire genotype is unobserved, we integrate it out. Let
-$\boldsymbol\pi_k=(\pi_{2,k},\pi_{1,k},\pi_{0,k})$ be a working sire genotype distribution at marker
-$k$ for $\{\mathrm{AA},\mathrm{Aa},\mathrm{aa}\}$ (nonnegative entries summing to one) used only to
-carry out this integration; as shown below, the emission---and hence everything the data
-identify---depends on $\boldsymbol\pi_k$ only through the single gametic frequency $q_k$, whose
-estimation is described later. The emission probability becomes the
-sire-averaged Mendelian probability:
+Throughout this single-dam derivation we suppress the dam superscript $d$ on $q_k^{(d)}$ (and on the
+emission and posteriors) for readability; the multi-dam case restores it (Section~\ref{sec:par_cont}).
+Because the transmitted paternal allele is unobserved, we marginalize the paternal contribution at
+each marker. Let $\boldsymbol\pi_k=(\pi_{2,k},\pi_{1,k},\pi_{0,k})$ be a working paternal genotype
+distribution at marker $k$ for $\{\mathrm{AA},\mathrm{Aa},\mathrm{aa}\}$ (nonnegative entries summing
+to one) used only to carry out this marginalization; as shown below, the emission---and hence
+everything the data identify---depends on $\boldsymbol\pi_k$ only through the single paternal gametic
+frequency $q_k$, which is itself a parameter estimated in the EM (Section~\ref{sec:par_cont}). The
+emission probability becomes the paternal-averaged Mendelian probability:
 \begin{equation}
 b_k^{(i)}(j)=\sum_{g\in\{2,1,0\}} \pi_{g,k}\,\theta_{ik}(j,g),
 \qquad
@@ -108,7 +115,7 @@ m_k^{(d,j)}=
 0,& A_k^{(d,j)}=a,
 \end{cases}
 \]
-and the sire $A$-gamete probability
+and the paternal $A$-gamete probability
 \[
 p_g=
 \begin{cases}
@@ -127,22 +134,22 @@ p_g,      & y_{ik}-m_k^{(d,j)}=1,\\[4pt]
 \end{cases}
 \label{eq:theta-cases}
 \end{equation}
-For example, if the dam transmits $A$ and the sire is $\mathrm{Aa}$ then
+For example, if the dam transmits $A$ and the contributing paternal genotype is $\mathrm{Aa}$ then
 $\Pr(\mathrm{AA})=\tfrac12$, $\Pr(\mathrm{Aa})=\tfrac12$, and $\Pr(\mathrm{aa})=0$.
 If the dam is homozygous at marker $k$, then $A_k^{(d,1)}=A_k^{(d,2)}$ and hence
 $b_k^{(i)}(1)=b_k^{(i)}(2)$, so such loci are uninformative about the transmitted homolog.
 
-\paragraph{The identifiable paternal quantity is the gametic allele frequency.}
-The sire-averaged emission \eqref{eq:emis-average} depends on the sire genotype vector
-$\boldsymbol\pi_k$ only through the \emph{sire gametic allele frequency}
+\paragraph{The identifiable paternal quantity is the gametic frequency.}
+The paternal-averaged emission \eqref{eq:emis-average} depends on the paternal genotype vector
+$\boldsymbol\pi_k$ only through the \emph{paternal gametic frequency}
 \[
 q_k \;=\; \sum_{g}\pi_{g,k}\,p_g
 \;=\; \pi_{2,k}+\tfrac12\pi_{1,k}
 \;=\; \pi_{\mathrm{AA},k}+\tfrac12\pi_{\mathrm{Aa},k}
 \;=\; \Pr(\text{the paternal gamete transmits }A),
 \]
-with $p_g$ the sire $A$-gamete probability defined above. Equivalently, before genotyping error the
-emission is, over offspring genotypes $(\mathrm{AA},\mathrm{Aa},\mathrm{aa})$,
+with $p_g$ the paternal $A$-gamete probability defined above. Equivalently, before genotyping error
+the emission is, over offspring genotypes $(\mathrm{AA},\mathrm{Aa},\mathrm{aa})$,
 \[
 b_k^{(i)}(j)=
 \begin{cases}
@@ -150,13 +157,14 @@ b_k^{(i)}(j)=
 (\,0,\;q_k,\;1-q_k\,) & \text{if } A_k^{(d,j)}=a.
 \end{cases}
 \]
-Consequently the offspring likelihood identifies \emph{only} $q_k$, not the three sire genotype
+Consequently the offspring likelihood identifies \emph{only} $q_k$, not the three paternal genotype
 frequencies $(\pi_{2,k},\pi_{1,k},\pi_{0,k})$ separately: any two genotype vectors with the same
 $q_k=\pi_{\mathrm{AA},k}+\tfrac12\pi_{\mathrm{Aa},k}$ produce identical emissions and identical
-likelihood. We therefore take $q_k$ as the single paternal parameter at each marker (and dam), and
-treat $\boldsymbol\pi_k$ only as a redundant working representation; we do not report or interpret
-sire genotype frequencies, sire genotype distributions, or Hardy--Weinberg proportions. Under
-assumption ($vii$), $q_k$ is integrated independently across markers.
+likelihood. We therefore take $q_k$ (dam-specific $q_k^{(d)}$; superscript suppressed here) as the
+single paternal parameter at each marker and dam, and treat $\boldsymbol\pi_k$ only as a redundant
+working representation; we do not report or interpret paternal genotype frequencies or paternal
+genotype distributions. Under assumption ($vii$), the paternal gamete allele is marginalized
+independently across markers conditional on $q_k$.
 
 \paragraph{Optional genotyping error:}
 With a per-marker miscall rate $e_k\in[0,1)$ and symmetric errors among the three genotypes, use
@@ -179,10 +187,11 @@ b_k^{(i)}(j)
 A global $e$ may be used in place of a marker-specific $e_k$.
 
 \subsubsection{Estimating the paternal gametic frequency $q_k$ in practice}
-Because the emission depends on the sire only through $q_k$ (previous paragraph), we estimate a
-single per-marker (and per-dam) gametic frequency $q_k$, updated within the same
-Expectation--Maximization (EM) loop \citep{Dempster1977} that estimates $\mathbf r$; full E- and
-M-step formulas appear in Section~\ref{sec:par_cont}. The historical Hardy--Weinberg
+Because the emission depends on the paternal contribution only through $q_k$ (previous paragraph),
+we estimate a single per-marker, dam-specific gametic frequency $q_k^{(d)}$ (superscript suppressed
+in single-dam expressions), updated within the same Expectation--Maximization (EM) loop
+\citep{Dempster1977} that estimates the shared map $\mathbf r$; full E- and M-step formulas appear
+in Section~\ref{sec:par_cont}. The historical Hardy--Weinberg
 parameterization $\boldsymbol{\pi}_k=[\,p_k^2,\,2p_k(1-p_k),\,(1-p_k)^2\,]$ is
 \emph{mathematically identical} to the gametic model, because under that form
 $q_k=p_k^2+\tfrac12\bigl(2p_k(1-p_k)\bigr)=p_k$; it is only a reparameterization of the same
@@ -199,11 +208,13 @@ $\log\mathcal{L}+\sum_k\bigl[\alpha_k\log q_k+\beta_k\log(1-q_k)\bigr]$. Here $\
 $\beta_k$ are pseudocounts, so the equivalent probability prior is
 $\mathrm{Beta}(\alpha_k+1,\beta_k+1)$ and the update is its posterior mode;
 $\alpha_k=\beta_k=0$ gives the unregularized fit. Writing the total pseudocount
-$\lambda=\alpha_k+\beta_k$, a prior mean $q^{(0)}_k$ corresponds to
-$\alpha_k=\lambda q^{(0)}_k$ and $\beta_k=\lambda(1-q^{(0)}_k)$. The software default
-$\lambda=20$ (i.e.\ $\alpha_k=\beta_k=10$ at prior mean $0.5$) is retained for backward
-compatibility only and is \emph{not} a statistically validated recommendation; it can over-shrink
-$q_k$ at extreme sire allele frequencies.
+$\lambda=\alpha_k+\beta_k$, the shrinkage target is the pseudocount proportion
+$q^{(0)}_k=\alpha_k/(\alpha_k+\beta_k)$---equivalently the \emph{mode} of the
+$\mathrm{Beta}(\alpha_k+1,\beta_k+1)$ prior, not its mean $(\alpha_k+1)/(\alpha_k+\beta_k+2)$---so
+that $\alpha_k=\lambda q^{(0)}_k$ and $\beta_k=\lambda(1-q^{(0)}_k)$. The software default
+$\lambda=20$ (i.e.\ $\alpha_k=\beta_k=10$, pseudocount target $q^{(0)}_k=0.5$) is retained for
+backward compatibility only and is \emph{not} a statistically validated recommendation; it can
+over-shrink $q_k$ at extreme paternal gametic frequencies.
 
 \section{Likelihood Calculation and Parameter Estimation}
 \subsection{Parameter Estimation Strategy}
@@ -326,12 +337,14 @@ The M-step updates the recombination fractions by treating these expected counts
 For numerical stability, we enforce the box constraint $r_k \in [\varepsilon, 0.5-\varepsilon]$ for a small $\varepsilon > 0$. The E- and M-steps are alternated until the log-likelihood of the data converges (i.e., the increase between iterations falls below a predefined tolerance). The final parameter vector $\hat{\mathbf{r}}$ is the maximum likelihood estimate. The final recombination fractions can be converted to map distances in centimorgans (cM) using a mapping function, such as Haldane's or Kosambi's.
 \paragraph{Paternal updates within the EM loop.}
 The emission probabilities in Eqs.~\eqref{eq:emis-average}–\eqref{eq:emission-error} depend on the
-paternal gametic frequencies $\{q_k\}$. Each EM iteration proceeds as follows: (i) build
-$b_k^{(i)}(j)$ from the current $\{q_k\}$; (ii) run forward--backward to obtain $\gamma$ and $\xi$;
-(iii) update $\mathbf r$ from $\xi$; and (iv) update each $q_k$ from the $\gamma$-weighted expected
-paternal $A$-/$a$-gamete counts using the penalized update of Section~\ref{sec:par_cont}. All
-updates share a single Baum--Welch loop; full formulas are provided in Supplementary
-Section~\ref{sec:par_cont}.
+dam-specific paternal gametic frequencies $\{q_k^{(d)}\}$. Each EM iteration proceeds as follows,
+using each dam's own phase and emissions: (i) build $b_k^{(i)}(j)$ from the current $q_k^{(d)}$;
+(ii) run forward--backward within each family to obtain $\gamma$ and $\xi$; (iii) update the
+\emph{shared} map $\mathbf r$ from recombination counts \emph{pooled across all dams}; and (iv)
+update each $q_k^{(d)}$ from the $\gamma$-weighted expected paternal gamete counts of the offspring
+of dam $d$ only---these paternal counts are \emph{not} pooled across dams---using the penalized
+update of Section~\ref{sec:par_cont}. All updates share a single Baum--Welch loop; full formulas are
+provided in Supplementary Section~\ref{sec:par_cont}.
 
 \paragraph{Homogeneity of recombination across dams.}
 We treat the recombination map as shared across dams by default, reflecting its biological interpretation as a property of the chromosome. Empirically, female maps can differ across dams. To guard against bias when some dams contribute many offspring, we provide an optional heterogeneity check based on per-dam scalings of Haldane distances. Let $m_k=-\tfrac12\log(1-2r_k)$ be the Haldane distance for interval $k$. The scaled alternative sets $m_k^{(d)}=\eta^{(d)} m_k$, which implies
@@ -353,7 +366,7 @@ We initialize \(x\) using the leading eigenvector of \(J\), following signed-gra
 
 \paragraph{GitHub repository:} \url{https://github.com/mmollina/HSMap}
 
-\paragraph{Initialization and Constraints:} We use an uninformative prior for the initial hidden states at the left boundary (uniform prior $\,\Pr(S_{i1}=1)=\Pr(S_{i1}=2)=\tfrac12$). Recombination fractions are initialized uniformly (e.g., $r_k=0.1$) and are constrained to the interval $[\varepsilon, 0.5-\varepsilon]$ during optimization for a small $\varepsilon > 0$. The paternal gametic frequency is initialized at $q_k=0.5$; the default total pseudocount is $\lambda=20$ (i.e.\ $\alpha_k=\beta_k=10$ at prior mean $0.5$), retained for backward compatibility only and not a statistically validated recommendation (Section~\ref{sec:par_cont}).
+\paragraph{Initialization and Constraints:} We use an uninformative prior for the initial hidden states at the left boundary (uniform prior $\,\Pr(S_{i1}=1)=\Pr(S_{i1}=2)=\tfrac12$). Recombination fractions are initialized uniformly (e.g., $r_k=0.1$) and are constrained to the interval $[\varepsilon, 0.5-\varepsilon]$ during optimization for a small $\varepsilon > 0$. Each dam-specific paternal gametic frequency $q_k^{(d)}$ is initialized at $0.5$; the default total pseudocount is $\lambda=20$ (i.e.\ $\alpha_k=\beta_k=10$, pseudocount target $q^{(0)}_k=0.5$), retained for backward compatibility only and not a statistically validated recommendation (Section~\ref{sec:par_cont}).
 
 \paragraph{Convergence and Decoding:} The EM algorithm is run until the relative increase in the total log-likelihood between iterations falls below a tolerance of $10^{-6}$, or until a maximum number of iterations is reached. After convergence, the final model parameters can be used to decode the maternal transmissions for each offspring. The Viterbi algorithm can be used to find the single most probable inheritance path, while the posterior probabilities ($\gamma_k(j)$) provide the probability of inheriting from each homolog at each locus. These decoded paths are valuable for downstream analyses, such as identifying specific crossover locations, error checking or quantitative trait loci (QTL) analysis.
 
@@ -361,78 +374,93 @@ We initialize \(x\) using the leading eigenvector of \(J\), following signed-gra
 
 \paragraph{Equivalent allele-state parameterization.} The hidden state defined above indexes the transmitted maternal homolog, so the transition matrix is phase-free and linkage phase enters only through the emission allele labels $A_k^{(d,j)}$ (Section~\ref{sec:transition}). The implementation uses a mathematically equivalent reparameterization in which the hidden state is the transmitted \emph{allele} ($a$ or $A$). Emissions then depend only on the transmitted allele and are phase-free, while the fixed allele-to-homolog labeling implied by the phase makes linkage phase enter the \emph{transition}: a nonrecombinant interval preserves the allele under coupling, so $\Pr(\text{same allele})=1-r_k$, and switches it under repulsion, so $\Pr(\text{same allele})=r_k$. The two formulations yield identical per-individual likelihoods and recombination estimates; the allele-state form avoids relabeling emissions whenever the phase changes, and homolog posteriors are recovered by a cumulative exclusive-or over repulsion intervals. Equivalently, in the M-step a recombination in interval $k$ is the homolog-index switch of Section~\ref{sec:transition}, which the allele-state code scores as an allele switch under coupling and an allele match under repulsion.
 
-\paragraph{Paternal linkage disequilibrium (limitation).} The paternal contribution is integrated one marker at a time: the sire gametic alleles are treated as independent across markers (assumption $vii$), so paternal linkage disequilibrium (LD) is not modeled. When paternal LD is present, the offspring two-locus genotype distribution departs from the independent-gamete form assumed here, which can bias the sire allele-frequency estimates and, through them, confound maternal phase or recombination estimates---most directly in the pairwise phase stage (Section~\ref{sec:tpt}), whose likelihood assumes independent paternal alleles at the two markers. The present model therefore does not claim to resolve unknown-paternity structure completely; accounting for paternal LD is left to future work.
+\paragraph{Paternal linkage disequilibrium and pollen-pool heterogeneity (limitation).} The paternal contribution is marginalized one marker at a time: the paternal gamete alleles are treated as independent across markers (assumption $vii$), so paternal linkage disequilibrium (LD) across markers is not modeled, and the gametic $q^{(d)}$ model does not represent paternal haplotypes. When paternal LD is present, the offspring two-locus genotype distribution departs from the independent-gamete form assumed here, which can bias the paternal (pollen-pool) gametic-frequency estimates and, through them, confound maternal phase or recombination inference---most directly in the pairwise phase stage (Section~\ref{sec:tpt}), whose likelihood assumes independent paternal alleles at the two markers. That pairwise stage additionally uses a single paternal gametic frequency pooled over the included dams, so it does not model differences among dam-specific pollen pools; the multipoint model, by contrast, fits a separate $q_k^{(d)}$ per dam. The method therefore does not claim to resolve unknown-paternity structure completely; accounting for paternal LD across markers, and for pollen-pool heterogeneity in the pairwise component, is left to future work.
 
 \section{Supplementary Material} \label{sec:sup_mat}
 \subsection{Paternal gametic frequency: E-step and M-step} \phantomsection \label{sec:par_cont}
-The paternal contribution at each marker \(k\) is summarized by a single gametic frequency
-\(q_k=\Pr(\text{the paternal gamete transmits }A)\), integrated independently across markers
-(assumption $vii$). Its update is embedded in the same Baum--Welch loop used to estimate
-\(\mathbf r\). Let
+The paternal contribution is summarized, for each dam \(d\) and marker \(k\), by a single gametic
+frequency \(q_k^{(d)}=\Pr(\text{a paternal gamete of an offspring of dam }d\text{ transmits }A)\),
+with the paternal gamete allele marginalized independently across markers (assumption $vii$). Its
+update is embedded in the same Baum--Welch loop used to estimate the \emph{shared} map
+\(\mathbf r\). For an offspring \(i\) of dam \(d\), let
 \[
 e^{A}_{ik}(j)=\Pr\!\big(Y_{ik}=y_{ik}\mid A_k^{(d,j)},\ \text{paternal gamete }A\big),\qquad
 e^{a}_{ik}(j)=\Pr\!\big(Y_{ik}=y_{ik}\mid A_k^{(d,j)},\ \text{paternal gamete }a\big)
 \]
 be the error-convolved single-locus probabilities of the observed genotype given the transmitted
 maternal allele \(A_k^{(d,j)}\) and the paternal gamete allele (Eq.~\eqref{eq:emission-error}), so
-the emission is \(b_k^{(i)}(j)=q_k\,e^{A}_{ik}(j)+(1-q_k)\,e^{a}_{ik}(j)\). Each outer iteration
-(i) builds \(b_k^{(i)}(j)\) from the current \(q_k\); (ii) runs forward--backward to obtain
-\(\gamma\) and \(\xi\); (iii) updates \(\mathbf r\) from \(\xi\); and (iv) updates \(q_k\) as follows.
+the emission is \(b_k^{(i)}(j)=q_k^{(d)}\,e^{A}_{ik}(j)+(1-q_k^{(d)})\,e^{a}_{ik}(j)\). Each outer
+iteration, run separately within each family using that dam's phase, (i) builds \(b_k^{(i)}(j)\)
+from the current \(q_k^{(d)}\); (ii) runs forward--backward to obtain the per-family posteriors
+\(\gamma_k^{(i,d)}(j)\) and \(\xi_k^{(i,d)}(j,j')\); (iii) updates the shared \(\mathbf r\) from
+recombination counts pooled across all dams (Section~\ref{sec:param_estimation}); and (iv) updates
+each \(q_k^{(d)}\) from that dam's offspring only, as follows.
 
-\paragraph{E-step: expected paternal gamete counts.}
-For offspring \(i\) at marker \(k\), the posterior probability that the paternal gamete transmitted
-\(A\), marginalized over the maternal-state posterior \(\gamma_k^{(i)}(j)\) with the emission
-normalized \emph{per maternal state}, is
+\paragraph{E-step: expected paternal gamete counts (per dam).}
+For an offspring \(i\) of dam \(d\) at marker \(k\), the posterior probability that its paternal
+gamete transmitted \(A\), marginalized over the maternal-state posterior \(\gamma_k^{(i,d)}(j)\)
+with the emission normalized \emph{per maternal state}, is
 \[
-\rho_{A,k}^{(i)}=\sum_{j\in\{1,2\}}\gamma_k^{(i)}(j)\,
-\frac{q_k\,e^{A}_{ik}(j)}{b_k^{(i)}(j)},
+\rho_{A,k}^{(i,d)}=\sum_{j\in\{1,2\}}\gamma_k^{(i,d)}(j)\,
+\frac{q_k^{(d)}\,e^{A}_{ik}(j)}{b_k^{(i)}(j)},
 \qquad
-\rho_{a,k}^{(i)}=\sum_{j\in\{1,2\}}\gamma_k^{(i)}(j)\,
-\frac{(1-q_k)\,e^{a}_{ik}(j)}{b_k^{(i)}(j)},
+\rho_{a,k}^{(i,d)}=\sum_{j\in\{1,2\}}\gamma_k^{(i,d)}(j)\,
+\frac{(1-q_k^{(d)})\,e^{a}_{ik}(j)}{b_k^{(i)}(j)},
 \]
 which sum to \(1\) at observed loci. A maternal state \(j\) contributes only when both
-\(\gamma_k^{(i)}(j)>0\) and \(b_k^{(i)}(j)>0\), so an impossible state at zero genotyping error is
+\(\gamma_k^{(i,d)}(j)>0\) and \(b_k^{(i)}(j)>0\), so an impossible state at zero genotyping error is
 skipped rather than dividing by zero. Missing calls (\(y_{ik}=\varnothing\)) contribute no gamete
-count. Summing over offspring gives the expected paternal \(A\)- and \(a\)-gamete counts
+count. Summing over the offspring \emph{of dam \(d\)} gives the dam-specific expected paternal
+\(A\)- and \(a\)-gamete counts
 \[
-N_{A,k}=\sum_{i=1}^{n}\rho_{A,k}^{(i)},\qquad
-N_{a,k}=\sum_{i=1}^{n}\rho_{a,k}^{(i)}.
+N_{A,k}^{(d)}=\sum_{i\,\in\,\text{family }d}\rho_{A,k}^{(i,d)},\qquad
+N_{a,k}^{(d)}=\sum_{i\,\in\,\text{family }d}\rho_{a,k}^{(i,d)}.
 \]
+These paternal gamete counts are \emph{not} pooled across dams---unlike the recombination counts,
+which are pooled because \(\mathbf r\) is shared.
 
-\paragraph{M-step: penalized (MAP) update.}
-With a per-marker pseudocount prior \((\alpha_k,\beta_k)\),
+\paragraph{M-step: penalized (MAP) update (per dam).}
+With a per-marker, per-dam pseudocount prior \((\alpha_k^{(d)},\beta_k^{(d)})\),
 \[
-\hat q_k=\frac{N_{A,k}+\alpha_k}{N_{A,k}+N_{a,k}+\alpha_k+\beta_k}.
+\hat q_k^{(d)}=\frac{N_{A,k}^{(d)}+\alpha_k^{(d)}}
+{N_{A,k}^{(d)}+N_{a,k}^{(d)}+\alpha_k^{(d)}+\beta_k^{(d)}}.
 \]
 This maximizes the penalized objective
-\(\log\mathcal{L}+\sum_k\bigl[\alpha_k\log q_k+\beta_k\log(1-q_k)\bigr]\); equivalently it is the
-posterior mode under a \(\mathrm{Beta}(\alpha_k+1,\beta_k+1)\) prior, and \(\alpha_k=\beta_k=0\)
-gives the unregularized fit. Writing the common total pseudocount \(\lambda=\alpha_k+\beta_k\) and a
-prior mean \(q^{(0)}_k\), one sets \(\alpha_k=\lambda q^{(0)}_k\) and
-\(\beta_k=\lambda(1-q^{(0)}_k)\); the software default \(\lambda=20\) (\(\alpha_k=\beta_k=10\) at
-prior mean \(0.5\)) is retained for backward compatibility only and is not a statistically
-validated recommendation.
+\(\log\mathcal{L}+\sum_{d,k}\bigl[\alpha_k^{(d)}\log q_k^{(d)}+\beta_k^{(d)}\log(1-q_k^{(d)})\bigr]\);
+equivalently \(\hat q_k^{(d)}\) is the posterior mode under a
+\(\mathrm{Beta}(\alpha_k^{(d)}+1,\beta_k^{(d)}+1)\) prior, and \(\alpha_k^{(d)}=\beta_k^{(d)}=0\)
+gives the unregularized fit. Writing the total pseudocount \(\lambda=\alpha_k^{(d)}+\beta_k^{(d)}\),
+the shrinkage target is the pseudocount proportion (the prior \emph{mode})
+\(q^{(0)}_k=\alpha_k^{(d)}/(\alpha_k^{(d)}+\beta_k^{(d)})\), so \(\alpha_k^{(d)}=\lambda q^{(0)}_k\)
+and \(\beta_k^{(d)}=\lambda(1-q^{(0)}_k)\); the \emph{mean} of the equivalent Beta prior is instead
+\((\alpha_k^{(d)}+1)/(\alpha_k^{(d)}+\beta_k^{(d)}+2)\). The software default \(\lambda=20\)
+(\(\alpha_k^{(d)}=\beta_k^{(d)}=10\), pseudocount target \(q^{(0)}_k=0.5\)) is retained for backward
+compatibility only and is not a statistically validated recommendation.
 
 \paragraph{Practical notes.}
 (i) Initialization: \(q^{(0)}_k=0.5\) when no prior is supplied.
-(ii) Missing data: if all calls at marker \(k\) are missing, \(\hat q_k\) reverts to the prior mean.
-(iii) Numerical stability: clip \(\hat q_k\) to \([10^{-9},\,1-10^{-9}]\).
+(ii) Missing data: if all calls at marker \(k\) are missing for dam \(d\), \(\hat q_k^{(d)}\) reverts
+to the pseudocount target \(q^{(0)}_k\).
+(iii) Numerical stability: clip \(\hat q_k^{(d)}\) to \([10^{-9},\,1-10^{-9}]\).
 (iv) The Hardy--Weinberg genotype form \(\boldsymbol{\pi}_k=[\,p_k^2,\,2p_k(1-p_k),\,(1-p_k)^2\,]\)
-with \(p_k=q_k\) yields identical emissions and is only a reparameterization of this one-parameter
-model, not a separately identifiable model.
+with \(p_k=q_k^{(d)}\) yields identical emissions and is only a reparameterization of this
+one-parameter model, not a separately identifiable model.
 
 \subsection{Two-Point Analysis for Pairwise Phase and Recombination Estimation}
 \label{sec:tpt}
 To initialize the multilocus HMM, we fit a two-marker model for each adjacent pair $(k,k')$ that compares the two maternal phase hypotheses and estimates a pairwise recombination fraction. We consider only dams that are double heterozygotes at these markers \(\bigl(G_k^{(d)}=G_{k'}^{(d)}=1\bigr)\). For each such dam $d$, we count the number of offspring, $C_d(a,b)$, for each two-locus genotype $(y_{ik},y_{i,k'})=(a,b)\in\{0,1,2\}^2$ (offspring with a missing call at one of the loci are accommodated by summing over the missing genotype; if both are missing there is no contribution).
 
 \paragraph{Two-marker offspring genotype distribution under phase and $r_{kk'}$.}
-The probability of an offspring's two-locus genotype, $(Y_k,Y_{k'})=(y_k,y_{k'})$, depends on the maternal phase, the recombination fraction $r_{kk'}$, and the sire population allele frequencies $(p_k,p_{k'})$. We build this probability in three steps.
+The probability of an offspring's two-locus genotype, $(Y_k,Y_{k'})=(y_k,y_{k'})$, depends on the maternal phase, the recombination fraction $r_{kk'}$, and the pooled paternal gametic frequencies $(p_k,p_{k'})$. We build this probability in three steps.
 
 \subsubsection{Step 1: Paternal contribution at a single locus}
-Let $p_k$ be the frequency of allele $A$ transmitted by the sire at marker $k$; under the
-independent-marker assumption ($vii$) this is exactly the sire gametic frequency $q_k$ of the
-multipoint model, so the two-point stage is parameterized by the same identifiable quantity.
-Define the row vectors, listed in the order $(Y=2,\,Y=1,\,Y=0)$,
+Let $p_k$ be the frequency of allele $A$ among the paternal gametes at marker $k$, estimated
+\emph{pooled over the dams} included at this pair. It is the pooled analogue of the same identifiable
+paternal-gamete probability used in the multipoint model, but---because the current two-point stage
+uses a single paternal frequency for all included dams---it should not be equated with each
+dam-specific $q_k^{(d)}$ unless the paternal pools are assumed equal across dams. (This
+approximation affects only the pairwise phase initialization; the multipoint HMM fits a separate
+$q_k^{(d)}$ per dam.) Define the row vectors, listed in the order $(Y=2,\,Y=1,\,Y=0)$,
 \[
 F_k^{(A)} := (\,p_k,\,1-p_k,\,0\,), \qquad
 F_k^{(a)} := (\,0,\,p_k,\,1-p_k\,).
@@ -468,7 +496,7 @@ P^{(C)}_{y_k,y_{k'}}(r_{kk'};p_k,p_{k'})
 The expression for repulsion is obtained by swapping the nonrecombinant and recombinant pairings. At $r_{kk'}=0.5$ the two phases are indistinguishable.
 
 \paragraph{Estimation and phase calls (per dam, pooled $r_{kk'}$).}
-We first obtain method-of-moments estimates for the sire allele frequencies, $\hat p_k$ and $\hat p_{k'}$, from the marginal offspring genotype counts (pooled over the dams included at this pair). The log-likelihood for dam $d$ is
+We first obtain method-of-moments estimates for the pooled paternal gametic frequencies, $\hat p_k$ and $\hat p_{k'}$, from the marginal offspring genotype counts (pooled over the dams included at this pair). The log-likelihood for dam $d$ is
 \[
 \ell_d(r_{kk'},\phi) \;=\; \sum_{a=0}^{2}\sum_{b=0}^{2} C_d(a,b)\,\log P^{(\phi)}_{ab}(r_{kk'};\hat p_k,\hat p_{k'}).
 \]
