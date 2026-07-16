@@ -6,26 +6,8 @@
 # The previous code normalized by the gamma-averaged emission, biasing the q
 # update so the EM did not ascend the observed-data likelihood.
 #
-# Shared helpers (make_dat, oracle_phased, oracle_multi) live in helper-sim.R.
-
-hwe_cols <- function(q) { q <- pmin(pmax(q, 1e-9), 1 - 1e-9); rbind(q^2, 2*q*(1-q), (1-q)^2) }
-pen_q    <- function(q, lambda, q0 = 0.5) {   # penalty added to obs-LL: a log q + b log(1-q)
-  a <- lambda * q0; b <- lambda * (1 - q0)
-  sum(a * log(pmin(pmax(q, 1e-12), 1)) + b * log(pmin(pmax(1 - q, 1e-12), 1)))
-}
-one_dam <- function(seed, Tm = 60L, n = 300L, pA = 0.40, err = 0.01, rr = 0.3, mat = "all_het") {
-  set.seed(seed); r_true <- runif(Tm - 1, 0.01, 0.15)
-  sim <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = n, marker_intersection = 1,
-                       r_vec = r_true, phase_mode = "random", repulsion_rate = rr,
-                       maternal_geno_mode = mat, maternal_pA = 0.5,
-                       paternal_pA_base = pA, error_rate = err, seed = seed)
-  mk <- sim$truth$markers_union
-  dat <- make_dat(sim)
-  oph <- oracle_phased(mk, 1L - sim$truth$v_true[[1]], "P1")
-  G <- dat$G_list[[1]][, mk, drop = FALSE]; storage.mode(G) <- "integer"
-  list(dat = dat, oph = oph, G = G, M = as.integer(dat$M_list[[1]][mk]),
-       ph = as.integer(1L - sim$truth$v_true[[1]]), r_true = r_true, mk = mk)
-}
+# Shared helpers (make_dat, oracle_phased, oracle_multi, hwe_cols, pen_q, one_dam)
+# live in helper-sim.R.
 
 test_that("paternal responsibilities sum to one (corrected per-state normalization)", {
   Rg <- function(ga, pi3, pyh0, pyh1) {
