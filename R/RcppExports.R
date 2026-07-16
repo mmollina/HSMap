@@ -21,7 +21,7 @@ simulate_offspring_cpp <- function(M, pi_true, r_true, n_offspring, error_rate =
     .Call(`_HSMap_simulate_offspring_cpp`, M, pi_true, r_true, n_offspring, error_rate, keep_paths, z_phase_in)
 }
 
-pairwise_rf_estimation_multi_parallel_cpp <- function(G_list, M_list, lambda = 20.0, r_start = 0.05, tol = 1e-6, maxit = 200L, tiny = 1e-12, share_pi_across_dams = FALSE, verbose = FALSE) {
-    .Call(`_HSMap_pairwise_rf_estimation_multi_parallel_cpp`, G_list, M_list, lambda, r_start, tol, maxit, tiny, share_pi_across_dams, verbose)
+pairwise_rf_estimation_multi_parallel_cpp <- function(G_list, M_list, lambda = 20.0, q0 = 0.5, r_start = 0.05, tol = 1e-6, maxit = 200L, tiny = 1e-12, share_pi_across_dams = FALSE, verbose = FALSE) {
+    .Call(`_HSMap_pairwise_rf_estimation_multi_parallel_cpp`, G_list, M_list, lambda, q0, r_start, tol, maxit, tiny, share_pi_across_dams, verbose)
 }
 

@@ -198,6 +198,28 @@ tpt_filter <- function(x,
     }
   }
 
+  # per-dam phase-LOD matrices (subset like mom_phase_list so all stay aligned)
+  if (!is.null(x$fit$lod_ph_list) && length(x$fit$lod_ph_list)) {
+    for (g in seq_along(x$fit$lod_ph_list)) {
+      L <- x$fit$lod_ph_list[[g]]
+      if (is.matrix(L) && !is.null(rownames(L))) {
+        keep <- intersect(ids, rownames(L))
+        x$fit$lod_ph_list[[g]] <- L[keep, keep, drop = FALSE]
+      }
+    }
+  }
+
+  # per-dam, per-marker q vectors (subset by marker name, same order as `ids`)
+  if (!is.null(x$fit$q_list) && length(x$fit$q_list)) {
+    for (g in seq_along(x$fit$q_list)) {
+      qv <- x$fit$q_list[[g]]
+      if (!is.null(names(qv))) {
+        keep <- intersect(ids, names(qv))
+        x$fit$q_list[[g]] <- qv[keep]
+      }
+    }
+  }
+
   # update marker vectors
   x$fit$markers <- ids
   x$markers     <- ids

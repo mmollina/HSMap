@@ -102,13 +102,45 @@ static inline double golden_max(F f, double lo, double hi,
   return (fc > fd ? c : d);
 }
 
+// Single-locus marginal genotype probabilities P(Y=0/1/2) for a double-het dam
+// (Aa x paternal gamete A-freq q), marginalized over the unobserved paternal
+// gamete and the maternal transmission:
+//   P(Y=2)=q/2, P(Y=1)=1/2, P(Y=0)=(1-q)/2.
+// This is exactly sum_b PC[Y][b] = sum_b PR[Y][b]. CONDITIONAL ON FIXED q, a
+// single-marker (partial) observation's likelihood contribution is therefore
+// constant in r and in phase. Partial observations may still affect r and phase
+// INDIRECTLY, because they contribute to the plug-in estimate of q (which is fixed
+// before the r/phase optimization and enters both PC and PR).
+static inline void marginal_single_dhet(double q, double out[3]) {
+  out[0] = 0.5 * (1.0 - q);
+  out[1] = 0.5;
+  out[2] = 0.5 * q;
+}
+
 // -----------------------------------------------------------------------------
 // Parallel worker: computes pairwise two-point fits for all (i,j), i<j
+//
+// Statistical core (this milestone):
+//  * Dam-specific paternal gametic frequencies q_k^(d) are supplied precomputed
+//    (per dam, per marker) and used to build each dam's joint genotype model;
+//    they are NOT pooled across dams.
+//  * Partial observations (one marker observed, the other missing) contribute to
+//    the reported likelihood through the correct single-marker MARGINAL, and are
+//    NOT discarded. Conditional on fixed q, that marginal is constant in r and
+//    phase, so partial observations do not by themselves shift r-hat or the phase
+//    LOD; they can still affect both INDIRECTLY through their contribution to the
+//    plug-in estimate of q (computed before the r/phase optimization).
+//  * Phase evidence is returned per dam (lod_ph_list, mom_phase_list); the pooled
+//    lod_ph is the elementwise sum. An exact coupling-vs-repulsion tie yields
+//    phase NA and phase-LOD 0 for that dam.
+// The recombination-fraction optimizer (golden_max over sum_g max phase LL) and
+// the two-marker likelihood kernel are unchanged.
 // -----------------------------------------------------------------------------
 struct PairwiseWorker : public RcppParallel::Worker {
   // inputs (read-only views)
   const std::vector<RMatrix<int>> kids;   // per-dam child genotypes [nKids x Tm]
   const std::vector<RVector<int>> moms;   // per-dam maternal genotypes [Tm]
+  const std::vector<std::vector<double>>& qgk; // per-dam, per-marker q_k^(d) (NA where not het)
   const int Gp;                           // number of dams (populations)
   const int Tm;                           // number of markers
   const double lambda, r_start, tol, tiny;
@@ -121,10 +153,12 @@ struct PairwiseWorker : public RcppParallel::Worker {
   RMatrix<double> LODR;   // [Tm x Tm] LOD vs r=0.5
   RMatrix<double> LODPH;  // [Tm x Tm] phase LOD at r-hat (sum over dams)
   RMatrix<double> LL;     // [Tm x Tm] log-likelihood at r-hat
-  std::vector<RMatrix<int>> momPhase; // per-dam phase calls (C=1, R=0, NA)
+  std::vector<RMatrix<int>>    momPhase;  // per-dam phase calls (C=1, R=0, NA)
+  std::vector<RMatrix<double>> lodPhList; // per-dam phase LOD matrices
 
   PairwiseWorker(const std::vector<RMatrix<int>>& kids_,
                  const std::vector<RVector<int>>& moms_,
+                 const std::vector<std::vector<double>>& qgk_,
                  int Gp_, int Tm_,
                  double lambda_, double r_start_, double tol_,
                  int maxit_, double tiny_,
@@ -133,87 +167,100 @@ struct PairwiseWorker : public RcppParallel::Worker {
                  RMatrix<double> LODR_,
                  RMatrix<double> LODPH_,
                  RMatrix<double> LL_,
-                 const std::vector<RMatrix<int>>& momPhase_)
-    : kids(kids_), moms(moms_), Gp(Gp_), Tm(Tm_),
+                 const std::vector<RMatrix<int>>& momPhase_,
+                 const std::vector<RMatrix<double>>& lodPhList_)
+    : kids(kids_), moms(moms_), qgk(qgk_), Gp(Gp_), Tm(Tm_),
       lambda(lambda_), r_start(r_start_), tol(tol_), tiny(tiny_),
       maxit(maxit_),
       share_pi_across_dams(share_pi_), verbose(verbose_),
-      R(R_), LODR(LODR_), LODPH(LODPH_), LL(LL_), momPhase(momPhase_) {}
+      R(R_), LODR(LODR_), LODPH(LODPH_), LL(LL_),
+      momPhase(momPhase_), lodPhList(lodPhList_) {}
 
   void operator()(std::size_t begin, std::size_t end) {
+    const double LOG10 = std::log(10.0);
     for (int i = static_cast<int>(begin); i < static_cast<int>(end); ++i) {
       for (int j = i + 1; j < Tm; ++j) {
 
-        // Build 3x3 counts for each dam and flag Aa×Aa double het moms
-        struct DamRec { int C[3][3]; bool is_dhet; };
-        std::vector<DamRec> dams; dams.reserve(Gp);
+        // Per-dam record: complete 3x3 counts, single-marker partial counts,
+        // the constant (in r, phase) partial log-likelihood, and dam-specific q.
+        struct DamRec {
+          int  C[3][3];   // both markers observed
+          int  niO[3];    // marker i observed, marker j missing
+          int  njO[3];    // marker j observed, marker i missing
+          double ll_partial;  // sum niO[a] log marg_i[a] + njO[b] log marg_j[b]
+          double q_i, q_j;
+          bool is_dhet;
+          bool has_complete;
+        };
+        std::vector<DamRec> dams(Gp);
 
-        long N_tot = 0, Yi2_sum = 0, Yj2_sum = 0;
-        int any_used = 0;
+        long n_complete_total = 0;   // complete observations across dhet dams
 
         for (int g = 0; g < Gp; ++g) {
-          DamRec d;
+          DamRec& d = dams[g];
           for (int a=0; a<3; ++a) for (int b=0; b<3; ++b) d.C[a][b] = 0;
+          d.niO[0]=d.niO[1]=d.niO[2]=0;
+          d.njO[0]=d.njO[1]=d.njO[2]=0;
+          d.ll_partial = 0.0;
+          d.has_complete = false;
 
           const RVector<int>& Mi = moms[g];
-          const int a = Mi[i];
-          const int b = Mi[j];
+          const int ma = Mi[i];
+          const int mb = Mi[j];
+          d.is_dhet = (ma == 1 && mb == 1);
+          if (!d.is_dhet) continue;   // only double-het dams inform this pair
 
-          d.is_dhet = (a == 1 && b == 1);
+          d.q_i = clamp(qgk[g][i], 1e-6, 1.0 - 1e-6);
+          d.q_j = clamp(qgk[g][j], 1e-6, 1.0 - 1e-6);
 
-          if (a != NA_INTEGER && b != NA_INTEGER) {
-            const RMatrix<int>& Gg = kids[g];
-            const int nKids = Gg.nrow();
-            for (int r = 0; r < nKids; ++r) {
-              const int yi = Gg(r, i);
-              const int yj = Gg(r, j);
-              if (yi == NA_INTEGER || yj == NA_INTEGER) continue;
-              if (yi < 0 || yi > 2 || yj < 0 || yj > 2) continue;
-              d.C[yi][yj] += 1;
-              any_used = 1;
-            }
+          const RMatrix<int>& Gg = kids[g];
+          const int nKids = Gg.nrow();
+          for (int r = 0; r < nKids; ++r) {
+            const int yi = Gg(r, i);
+            const int yj = Gg(r, j);
+            const bool vi = (yi != NA_INTEGER && yi >= 0 && yi <= 2);
+            const bool vj = (yj != NA_INTEGER && yj >= 0 && yj <= 2);
+            if (vi && vj)      { d.C[yi][yj] += 1; d.has_complete = true; }
+            else if (vi)       { d.niO[yi]   += 1; }   // i-only
+            else if (vj)       { d.njO[yj]   += 1; }   // j-only
+            // both missing: no contribution
           }
 
-          if (d.is_dhet) {
-            long n_all = 0;
-            for (int a2=0; a2<3; ++a2) for (int b2=0; b2<3; ++b2) n_all += d.C[a2][b2];
-            if (n_all > 0) {
-              long yi2 = d.C[2][2] + d.C[2][1] + d.C[2][0];
-              long yj2 = d.C[2][2] + d.C[1][2] + d.C[0][2];
-              N_tot   += n_all;
-              Yi2_sum += yi2;
-              Yj2_sum += yj2;
-            }
+          // constant partial contribution via single-marker marginals
+          double mi[3], mj[3];
+          marginal_single_dhet(d.q_i, mi);
+          marginal_single_dhet(d.q_j, mj);
+          for (int a=0; a<3; ++a) if (d.niO[a] > 0) {
+            double p = mi[a]; if (!(p > 0)) p = tiny;
+            d.ll_partial += d.niO[a] * std::log(p);
+          }
+          for (int b=0; b<3; ++b) if (d.njO[b] > 0) {
+            double p = mj[b]; if (!(p > 0)) p = tiny;
+            d.ll_partial += d.njO[b] * std::log(p);
           }
 
-          dams.push_back(d);
+          long nc = 0; for (int a=0;a<3;++a) for (int b=0;b<3;++b) nc += d.C[a][b];
+          n_complete_total += nc;
         }
 
-        if (!any_used) {
-          // leave NA at [i,j] and [j,i]
-          continue;
-        }
+        // A pair is fit only if some dhet dam has at least one complete (two-marker)
+        // observation; otherwise r and phase are not identifiable -> leave NA.
+        if (n_complete_total == 0) continue;
 
-        // Choose paternal A-freqs from double-het marginals:
-        // For mom Aa: P(Y=2) = p/2  => p = 2 * P(Y=2)
-        if (N_tot == 0) {
-          // nothing to estimate (no informative dams)
-          continue;
-        }
-        const double p_i = clamp( 2.0 * ( (double)Yi2_sum / (double)N_tot ), 1e-6, 1.0 - 1e-6 );
-        const double p_j = clamp( 2.0 * ( (double)Yj2_sum / (double)N_tot ), 1e-6, 1.0 - 1e-6 );
-
-        // Objective: sum over dams of max(ll_C, ll_R)
+        // Objective: sum over dhet dams of max(ll_C, ll_R), using each dam's own
+        // (already-estimated) q_i, q_j. Conditional on those fixed q, ll_partial is
+        // constant in (r, phase) and does not affect r-hat; the partial data still
+        // shaped r-hat indirectly, via its earlier contribution to q_i, q_j.
         auto obj = [&](double r)->double {
           r = clamp(r, 1e-6, 0.49);
           double total = 0.0;
-          for (int k=0; k<Gp; ++k) {
-            if (!dams[k].is_dhet) continue;
+          for (int g=0; g<Gp; ++g) {
+            if (!dams[g].is_dhet) continue;
             double PC[3][3], PR[3][3];
-            joint_child_probs_3x3(0, r, p_i, p_j, PC);
-            joint_child_probs_3x3(1, r, p_i, p_j, PR);
-            const double llC = ll_3x3(dams[k].C, PC, tiny);
-            const double llR = ll_3x3(dams[k].C, PR, tiny);
+            joint_child_probs_3x3(0, r, dams[g].q_i, dams[g].q_j, PC);
+            joint_child_probs_3x3(1, r, dams[g].q_i, dams[g].q_j, PR);
+            const double llC = ll_3x3(dams[g].C, PC, tiny) + dams[g].ll_partial;
+            const double llR = ll_3x3(dams[g].C, PR, tiny) + dams[g].ll_partial;
             total += (llC >= llR ? llC : llR);
           }
           return total;
@@ -222,34 +269,45 @@ struct PairwiseWorker : public RcppParallel::Worker {
         const double r_hat  = golden_max(obj, 1e-6, 0.49, 1e-5, 200);
         const double ll_hat = obj(r_hat);
         const double ll_half = obj(0.5);
-        const double lod_r  = (ll_hat - ll_half) / std::log(10.0);
+        const double lod_r  = (ll_hat - ll_half) / LOG10;
 
         // Initialize outputs for this pair
         R(i,j)      = R(j,i)      = r_hat;
         LL(i,j)     = LL(j,i)     = ll_hat;
         LODR(i,j)   = LODR(j,i)   = lod_r;
-        LODPH(i,j)  = LODPH(j,i)  = NA_REAL; // will fill below
-        for (int g=0; g<Gp; ++g) { momPhase[g](i,j) = NA_INTEGER; momPhase[g](j,i) = NA_INTEGER; }
+        // At a fit pair, non-double-het dams (and ties) contribute phase-LOD 0, so
+        // the pooled lod_ph equals the elementwise sum of lod_ph_list; their phase
+        // call is NA. Unfit pairs and the diagonal stay NA in both.
+        for (int g=0; g<Gp; ++g) {
+          momPhase[g](i,j)  = momPhase[g](j,i)  = NA_INTEGER;
+          lodPhList[g](i,j) = lodPhList[g](j,i) = 0.0;
+        }
 
-        // Phase LOD at r_hat and per-dam phase calls
+        // Per-dam phase LOD and phase call at r_hat, from THAT dam's likelihood
+        // only. Partial terms cancel in (llC - llR), so use complete counts.
         double lod_ph_sum = 0.0;
         for (int g=0; g<Gp; ++g) {
           if (!dams[g].is_dhet) continue;
 
           double PC[3][3], PR[3][3];
-          joint_child_probs_3x3(0, r_hat, p_i, p_j, PC);
-          joint_child_probs_3x3(1, r_hat, p_i, p_j, PR);
+          joint_child_probs_3x3(0, r_hat, dams[g].q_i, dams[g].q_j, PC);
+          joint_child_probs_3x3(1, r_hat, dams[g].q_i, dams[g].q_j, PR);
 
           const double llC = ll_3x3(dams[g].C, PC, tiny);
           const double llR = ll_3x3(dams[g].C, PR, tiny);
-          const double lmax = std::max(llC, llR), lmin = std::min(llC, llR);
-          lod_ph_sum += (lmax - lmin) / std::log(10.0);
 
-          const int phase = (llC >= llR) ? 1 : 0; // C=1, R=0
-          momPhase[g](i,j) = phase;
-          momPhase[g](j,i) = phase;
+          double lod; int phase;
+          if (llC == llR) {            // exact tie (incl. no complete data)
+            lod = 0.0; phase = NA_INTEGER;
+          } else {
+            lod   = std::fabs(llC - llR) / LOG10;
+            phase = (llC > llR) ? 1 : 0;   // C=1, R=0
+          }
+          lodPhList[g](i,j) = lodPhList[g](j,i) = lod;
+          momPhase[g](i,j)  = momPhase[g](j,i)  = phase;
+          lod_ph_sum += lod;
         }
-        LODPH(i,j) = LODPH(j,i) = lod_ph_sum;
+        LODPH(i,j) = LODPH(j,i) = lod_ph_sum;   // pooled = sum of per-dam LODs
       }
 
       // set diagonal for row i
@@ -257,7 +315,7 @@ struct PairwiseWorker : public RcppParallel::Worker {
       LL(i,i) = NA_REAL;
       LODR(i,i) = NA_REAL;
       LODPH(i,i) = NA_REAL;
-      for (int g=0; g<Gp; ++g) momPhase[g](i,i) = NA_INTEGER;
+      for (int g=0; g<Gp; ++g) { momPhase[g](i,i) = NA_INTEGER; lodPhList[g](i,i) = NA_REAL; }
     }
   }
 };
@@ -273,6 +331,7 @@ struct PairwiseWorker : public RcppParallel::Worker {
 Rcpp::List pairwise_rf_estimation_multi_parallel_cpp(Rcpp::List G_list,
                                                      Rcpp::List M_list,
                                                      double lambda = 20.0,
+                                                     double q0 = 0.5,
                                                      double r_start = 0.05,
                                                      double tol = 1e-6,
                                                      int    maxit = 200,
@@ -346,6 +405,52 @@ Rcpp::List pairwise_rf_estimation_multi_parallel_cpp(Rcpp::List G_list,
     kids.emplace_back(kidsR[g]);
   }
 
+  // Precompute dam-specific paternal gametic frequencies q_k^(d), per marker.
+  // For a dam heterozygous (Aa) at marker k, a zero-error offspring genotype AA
+  // observes one paternal A transmission and aa one paternal a transmission (Aa is
+  // uninformative). Using EVERY offspring with an observed call at marker k
+  // (including those missing at other markers):
+  //   q_k^(d) = (n_AA + alpha) / (n_AA + n_aa + alpha + beta),
+  //   alpha = lambda * q0,  beta = lambda * (1 - q0).
+  // q is NA where the dam is not heterozygous at k (undefined there). These are
+  // NOT pooled across dams. share_pi_across_dams = true optionally pools the AA/aa
+  // counts across dams (a single q per marker), retained for compatibility.
+  const double a_pc = lambda * q0;
+  const double b_pc = lambda * (1.0 - q0);
+  std::vector<std::vector<double>> qgk(Gp, std::vector<double>(Tm, NA_REAL));
+  {
+    // per-marker pooled counts (only used when share_pi_across_dams)
+    std::vector<long> pooled_AA(Tm, 0), pooled_aa(Tm, 0);
+    std::vector< std::vector<long> > nAA(Gp, std::vector<long>(Tm, 0));
+    std::vector< std::vector<long> > naa(Gp, std::vector<long>(Tm, 0));
+    for (int g=0; g<Gp; ++g) {
+      IntegerVector Mg = momsR[g];
+      IntegerMatrix Gg = kidsR[g];
+      const int nKids = Gg.nrow();
+      for (int k=0; k<Tm; ++k) {
+        if (Mg[k] != 1) continue;              // dam not het at k -> q undefined
+        long cAA=0, caa=0;
+        for (int r=0; r<nKids; ++r) {
+          const int y = Gg(r,k);
+          if (y == 2) ++cAA; else if (y == 0) ++caa;   // Aa / NA: no info
+        }
+        nAA[g][k]=cAA; naa[g][k]=caa;
+        pooled_AA[k]+=cAA; pooled_aa[k]+=caa;
+      }
+    }
+    for (int g=0; g<Gp; ++g) {
+      IntegerVector Mg = momsR[g];
+      for (int k=0; k<Tm; ++k) {
+        if (Mg[k] != 1) continue;
+        long cAA = share_pi_across_dams ? pooled_AA[k] : nAA[g][k];
+        long caa = share_pi_across_dams ? pooled_aa[k] : naa[g][k];
+        const double denom = (double)cAA + (double)caa + a_pc + b_pc;
+        double q = (denom > 0.0) ? ((double)cAA + a_pc) / denom : q0;
+        qgk[g][k] = clamp(q, 1e-6, 1.0 - 1e-6);
+      }
+    }
+  }
+
   // Outputs
   NumericMatrix R(Tm, Tm), LODR(Tm, Tm), LODPH(Tm, Tm), LL(Tm, Tm);
   std::fill(R.begin(),     R.end(),     NA_REAL);
@@ -368,13 +473,24 @@ Rcpp::List pairwise_rf_estimation_multi_parallel_cpp(Rcpp::List G_list,
   std::vector<RMatrix<int>> momPhase; momPhase.reserve(Gp);
   for (int g=0; g<Gp; ++g) momPhase.emplace_back(momPhaseR[g]);
 
+  // Per-dam phase-LOD outputs
+  std::vector<NumericMatrix> lodPhR(Gp);
+  for (int g=0; g<Gp; ++g) {
+    NumericMatrix Lg(Tm, Tm);
+    std::fill(Lg.begin(), Lg.end(), NA_REAL);
+    Lg.attr("dimnames") = List::create(markers, markers);
+    lodPhR[g] = Lg;
+  }
+  std::vector<RMatrix<double>> lodPhList; lodPhList.reserve(Gp);
+  for (int g=0; g<Gp; ++g) lodPhList.emplace_back(lodPhR[g]);
+
   // Run parallel worker across i in [0, Tm-2]
-  PairwiseWorker worker(kids, moms, Gp, Tm,
+  PairwiseWorker worker(kids, moms, qgk, Gp, Tm,
                         lambda, r_start, tol, maxit, tiny,
                         share_pi_across_dams, verbose,
                         RMatrix<double>(R), RMatrix<double>(LODR),
                         RMatrix<double>(LODPH), RMatrix<double>(LL),
-                        momPhase);
+                        momPhase, lodPhList);
 
   parallelFor(0, Tm - 1, worker);
 
@@ -383,18 +499,31 @@ Rcpp::List pairwise_rf_estimation_multi_parallel_cpp(Rcpp::List G_list,
   LL(Tm-1,Tm-1)    = NA_REAL;
   LODR(Tm-1,Tm-1)  = NA_REAL;
   LODPH(Tm-1,Tm-1) = NA_REAL;
-  for (int g=0; g<Gp; ++g) momPhaseR[g](Tm-1,Tm-1) = NA_INTEGER;
+  for (int g=0; g<Gp; ++g) { momPhaseR[g](Tm-1,Tm-1) = NA_INTEGER; lodPhR[g](Tm-1,Tm-1) = NA_REAL; }
 
   // Wrap per-dam phase matrices
-  List mom_phase_list(Gp);
-  for (int g=0; g<Gp; ++g) mom_phase_list[g] = momPhaseR[g];
-  if (!Rf_isNull(dam_names)) mom_phase_list.attr("names") = dam_names;
+  List mom_phase_list(Gp), lod_ph_list(Gp), q_list(Gp);
+  for (int g=0; g<Gp; ++g) {
+    mom_phase_list[g] = momPhaseR[g];
+    lod_ph_list[g]    = lodPhR[g];
+    NumericVector qv(Tm);
+    for (int k=0; k<Tm; ++k) qv[k] = qgk[g][k];   // NA where dam not het at k
+    qv.attr("names") = markers;
+    q_list[g] = qv;
+  }
+  if (!Rf_isNull(dam_names)) {
+    mom_phase_list.attr("names") = dam_names;
+    lod_ph_list.attr("names")    = dam_names;
+    q_list.attr("names")         = dam_names;
+  }
 
   return List::create(
     _["r"]              = R,
     _["lod_r"]          = LODR,
-    _["lod_ph"]         = LODPH,
+    _["lod_ph"]         = LODPH,       // pooled = elementwise sum of lod_ph_list
     _["logLik"]         = LL,
-    _["mom_phase_list"] = mom_phase_list
+    _["mom_phase_list"] = mom_phase_list,
+    _["lod_ph_list"]    = lod_ph_list, // per-dam phase LOD matrices
+    _["q_list"]         = q_list       // per-dam, per-marker q_k^(d) (NA where not het)
   );
 }
