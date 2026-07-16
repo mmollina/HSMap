@@ -278,3 +278,69 @@ test_that("deterministic example C: one strong dam and one weak dam", {
   expect_equal(res$lod_ph[1, 2],
                res$lod_ph_list$strong[1, 2] + res$lod_ph_list$weak[1, 2], tolerance = 1e-9)
 })
+
+
+# ---------------------------------------------------------------------------
+# Review commit: public q0, input validation, and filter alignment
+# ---------------------------------------------------------------------------
+.hsdata <- function(G_list, M_list)
+  structure(list(G_list = G_list, M_list = M_list), class = "HSMap.data")
+
+test_that("changing public q0 shifts q estimates as analytically expected", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  mk <- c("m1", "m2")
+  # n_AA = 12, n_aa = 4 at each marker  ->  q = (12 + lambda*q0) / (16 + lambda)
+  G <- rbind(matrix(rep(c(2L, 2L), 12), ncol = 2, byrow = TRUE),
+             matrix(rep(c(0L, 0L),  4), ncol = 2, byrow = TRUE))
+  colnames(G) <- mk; storage.mode(G) <- "integer"
+  dat <- .hsdata(list(P1 = G), list(P1 = setNames(c(1L, 1L), mk)))
+  lam <- 10
+  r3 <- pairwise_rf(dat, lambda = lam, q0 = 0.3, threads = 1)
+  r7 <- pairwise_rf(dat, lambda = lam, q0 = 0.7, threads = 1)
+  expect_equal(r3$fit$q_list$P1[["m1"]], (12 + lam * 0.3) / (16 + lam), tolerance = 1e-9)
+  expect_equal(r7$fit$q_list$P1[["m1"]], (12 + lam * 0.7) / (16 + lam), tolerance = 1e-9)
+  expect_gt(r7$fit$q_list$P1[["m1"]], r3$fit$q_list$P1[["m1"]])
+})
+
+test_that("invalid q0 and lambda values produce informative errors", {
+  mk <- c("m1", "m2")
+  G <- rbind(matrix(rep(c(2L, 2L), 5), ncol = 2, byrow = TRUE),
+             matrix(rep(c(0L, 0L), 5), ncol = 2, byrow = TRUE))
+  colnames(G) <- mk; storage.mode(G) <- "integer"
+  dat <- .hsdata(list(P1 = G), list(P1 = setNames(c(1L, 1L), mk)))
+  expect_error(pairwise_rf(dat, q0 = 1.5,          threads = 1), "q0")
+  expect_error(pairwise_rf(dat, q0 = -0.1,         threads = 1), "q0")
+  expect_error(pairwise_rf(dat, q0 = NA_real_,     threads = 1), "q0")
+  expect_error(pairwise_rf(dat, q0 = c(0.3, 0.5),  threads = 1), "q0")
+  expect_error(pairwise_rf(dat, lambda = -1,       threads = 1), "lambda")
+  expect_error(pairwise_rf(dat, lambda = Inf,      threads = 1), "lambda")
+  expect_error(pairwise_rf(dat, lambda = NA_real_, threads = 1), "lambda")
+})
+
+test_that("filtering keeps r, lod_ph, mom_phase_list, lod_ph_list, q_list aligned", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  mk <- c("m1", "m2", "m3", "m4")
+  # dams het at m1,m2,m3; homozygous (AA) at m4 -> m4 uninformative and dropped
+  M <- list(A = setNames(c(1L, 1L, 1L, 2L), mk), B = setNames(c(1L, 1L, 1L, 2L), mk))
+  mkG <- function(rows) { m <- matrix(as.integer(unlist(rows)), ncol = 4, byrow = TRUE); colnames(m) <- mk; m }
+  gA <- mkG(list(c(2,2,2,2), c(0,0,0,2), c(2,2,0,2), c(0,0,2,2), c(2,2,2,2), c(0,0,0,2)))
+  gB <- mkG(list(c(2,0,2,2), c(0,2,0,2), c(2,2,2,2), c(0,0,0,2), c(2,0,2,2), c(0,2,0,2)))
+  dat <- .hsdata(list(A = gA, B = gB), M)
+  tpt <- pairwise_rf(dat, threads = 1)
+  expect_true(all(c("lod_ph_list", "q_list") %in% names(tpt$fit)))
+
+  tf <- tpt_filter(tpt, thresh.LOD.ph = 0, thresh.LOD.rf = 0, thresh.rf = 0.5,
+                   probs = c(0.01, 1), diagnostic.plot = FALSE)
+  kept <- colnames(tf$fit$r)
+  expect_true("m4" %in% colnames(tpt$fit$r))   # present before
+  expect_false("m4" %in% kept)                 # dropped after (uninformative)
+
+  # every pairwise/phase/q container carries exactly `kept`, in the same order
+  expect_identical(rownames(tf$fit$r),      kept)
+  expect_identical(colnames(tf$fit$lod_r),  kept)
+  expect_identical(colnames(tf$fit$lod_ph), kept)
+  expect_identical(colnames(tf$fit$logLik), kept)
+  for (g in seq_along(tf$fit$mom_phase_list)) expect_identical(colnames(tf$fit$mom_phase_list[[g]]), kept)
+  for (g in seq_along(tf$fit$lod_ph_list))    expect_identical(colnames(tf$fit$lod_ph_list[[g]]),    kept)
+  for (g in seq_along(tf$fit$q_list))         expect_identical(names(tf$fit$q_list[[g]]),            kept)
+})

@@ -106,9 +106,11 @@ static inline double golden_max(F f, double lo, double hi,
 // (Aa x paternal gamete A-freq q), marginalized over the unobserved paternal
 // gamete and the maternal transmission:
 //   P(Y=2)=q/2, P(Y=1)=1/2, P(Y=0)=(1-q)/2.
-// This is exactly sum_b PC[Y][b] = sum_b PR[Y][b]; it does NOT depend on r or on
-// phase, so a single-marker (partial) observation is uninformative about linkage
-// and phase and contributes only through this marginal.
+// This is exactly sum_b PC[Y][b] = sum_b PR[Y][b]. CONDITIONAL ON FIXED q, a
+// single-marker (partial) observation's likelihood contribution is therefore
+// constant in r and in phase. Partial observations may still affect r and phase
+// INDIRECTLY, because they contribute to the plug-in estimate of q (which is fixed
+// before the r/phase optimization and enters both PC and PR).
 static inline void marginal_single_dhet(double q, double out[3]) {
   out[0] = 0.5 * (1.0 - q);
   out[1] = 0.5;
@@ -124,9 +126,10 @@ static inline void marginal_single_dhet(double q, double out[3]) {
 //    they are NOT pooled across dams.
 //  * Partial observations (one marker observed, the other missing) contribute to
 //    the reported likelihood through the correct single-marker MARGINAL, and are
-//    NOT discarded. Because that marginal is invariant to r and phase, partial
-//    observations do not shift r-hat or the phase LOD; they enter only the
-//    reported logLik (and the precomputed q).
+//    NOT discarded. Conditional on fixed q, that marginal is constant in r and
+//    phase, so partial observations do not by themselves shift r-hat or the phase
+//    LOD; they can still affect both INDIRECTLY through their contribution to the
+//    plug-in estimate of q (computed before the r/phase optimization).
 //  * Phase evidence is returned per dam (lod_ph_list, mom_phase_list); the pooled
 //    lod_ph is the elementwise sum. An exact coupling-vs-repulsion tie yields
 //    phase NA and phase-LOD 0 for that dam.
@@ -245,7 +248,9 @@ struct PairwiseWorker : public RcppParallel::Worker {
         if (n_complete_total == 0) continue;
 
         // Objective: sum over dhet dams of max(ll_C, ll_R), using each dam's own
-        // q_i, q_j. ll_partial is constant in (r, phase) and does not affect r-hat.
+        // (already-estimated) q_i, q_j. Conditional on those fixed q, ll_partial is
+        // constant in (r, phase) and does not affect r-hat; the partial data still
+        // shaped r-hat indirectly, via its earlier contribution to q_i, q_j.
         auto obj = [&](double r)->double {
           r = clamp(r, 1e-6, 0.49);
           double total = 0.0;

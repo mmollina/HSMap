@@ -47,6 +47,20 @@ cpp_pairwise_rf <- function(G_list,
     stop("`G_list` and `M_list` must be lists of the same length.")
   if (length(G_list) != length(M_list))
     stop("`G_list` and `M_list` must have the same length (one entry per dam/population).")
+
+  # --- validate scalar hyper-parameters --------------------------------------
+  if (!is.numeric(lambda) || length(lambda) != 1L || !is.finite(lambda) || lambda < 0)
+    stop("`lambda` must be a single finite, non-negative number.")
+  if (!is.numeric(q0) || length(q0) != 1L || !is.finite(q0) || q0 < 0 || q0 > 1)
+    stop("`q0` must be a single finite number in [0, 1].")
+  if (!is.numeric(tol) || length(tol) != 1L || !is.finite(tol) || tol <= 0)
+    stop("`tol` must be a single finite, positive number.")
+  if (!is.numeric(maxit) || length(maxit) != 1L || !is.finite(maxit) ||
+      maxit < 1 || maxit != round(maxit))
+    stop("`maxit` must be a single positive integer.")
+  if (!is.numeric(tiny) || length(tiny) != 1L || !is.finite(tiny) || tiny <= 0)
+    stop("`tiny` must be a single finite, positive number.")
+
   if (!is.numeric(n_threads) || length(n_threads) != 1L || !is.finite(n_threads) || n_threads < 1)
     stop("`n_threads` must be a positive finite integer.")
   n_threads <- as.integer(n_threads)
@@ -219,6 +233,9 @@ cpp_pairwise_rf <- function(G_list,
 #'   If `NULL`, \pkg{RcppParallel} uses its default setting.
 #' @param lambda A numeric scalar for the pseudo-count weight used in likelihood
 #'   regularization. See the \emph{Regularization} section for details. Default is `20`.
+#' @param q0 Numeric prior target (in `[0, 1]`) for the dam-specific paternal
+#'   gametic frequencies \eqn{q_k^{(d)}}: the value each `q` is shrunk toward, via
+#'   pseudocounts `alpha = lambda * q0` and `beta = lambda * (1 - q0)`. Default `0.5`.
 #' @param tol Numeric tolerance for the golden-section search algorithm.
 #'   Default is `1e-6`.
 #' @param maxit The maximum number of iterations for the golden-section search.
@@ -290,6 +307,7 @@ pairwise_rf <- function(
     parent_label = NULL,
     threads = NULL,
     lambda = 20,
+    q0 = 0.5,
     tol = 1e-6,
     maxit = 200,
     tiny = 1e-12,
@@ -366,7 +384,7 @@ pairwise_rf <- function(
   t0 <- proc.time()[["elapsed"]]
   fit <- cpp_pairwise_rf(
     G_list = G_list, M_list = M_list,
-    lambda = lambda, tol = tol, maxit = maxit,
+    lambda = lambda, q0 = q0, tol = tol, maxit = maxit,
     tiny = tiny, n_threads = threads
   )
   t1 <- proc.time()[["elapsed"]]

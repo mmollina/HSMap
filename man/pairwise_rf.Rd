@@ -11,6 +11,7 @@ pairwise_rf(
   parent_label = NULL,
   threads = NULL,
   lambda = 20,
+  q0 = 0.5,
   tol = 1e-06,
   maxit = 200,
   tiny = 1e-12,
@@ -39,6 +40,10 @@ If \code{NULL}, \pkg{RcppParallel} uses its default setting.}
 
 \item{lambda}{A numeric scalar for the pseudo-count weight used in likelihood
 regularization. See the \emph{Regularization} section for details. Default is \code{20}.}
+
+\item{q0}{Numeric prior target (in \verb{[0, 1]}) for the dam-specific paternal
+gametic frequencies \eqn{q_k^{(d)}}: the value each \code{q} is shrunk toward, via
+pseudocounts \code{alpha = lambda * q0} and \code{beta = lambda * (1 - q0)}. Default \code{0.5}.}
 
 \item{tol}{Numeric tolerance for the golden-section search algorithm.
 Default is \code{1e-6}.}
