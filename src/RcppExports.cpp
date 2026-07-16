@@ -105,21 +105,22 @@ BEGIN_RCPP
 END_RCPP
 }
 // pairwise_rf_estimation_multi_parallel_cpp
-Rcpp::List pairwise_rf_estimation_multi_parallel_cpp(Rcpp::List G_list, Rcpp::List M_list, double lambda, double r_start, double tol, int maxit, double tiny, bool share_pi_across_dams, bool verbose);
-RcppExport SEXP _HSMap_pairwise_rf_estimation_multi_parallel_cpp(SEXP G_listSEXP, SEXP M_listSEXP, SEXP lambdaSEXP, SEXP r_startSEXP, SEXP tolSEXP, SEXP maxitSEXP, SEXP tinySEXP, SEXP share_pi_across_damsSEXP, SEXP verboseSEXP) {
+Rcpp::List pairwise_rf_estimation_multi_parallel_cpp(Rcpp::List G_list, Rcpp::List M_list, double lambda, double q0, double r_start, double tol, int maxit, double tiny, bool share_pi_across_dams, bool verbose);
+RcppExport SEXP _HSMap_pairwise_rf_estimation_multi_parallel_cpp(SEXP G_listSEXP, SEXP M_listSEXP, SEXP lambdaSEXP, SEXP q0SEXP, SEXP r_startSEXP, SEXP tolSEXP, SEXP maxitSEXP, SEXP tinySEXP, SEXP share_pi_across_damsSEXP, SEXP verboseSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< Rcpp::List >::type G_list(G_listSEXP);
     Rcpp::traits::input_parameter< Rcpp::List >::type M_list(M_listSEXP);
     Rcpp::traits::input_parameter< double >::type lambda(lambdaSEXP);
+    Rcpp::traits::input_parameter< double >::type q0(q0SEXP);
     Rcpp::traits::input_parameter< double >::type r_start(r_startSEXP);
     Rcpp::traits::input_parameter< double >::type tol(tolSEXP);
     Rcpp::traits::input_parameter< int >::type maxit(maxitSEXP);
     Rcpp::traits::input_parameter< double >::type tiny(tinySEXP);
     Rcpp::traits::input_parameter< bool >::type share_pi_across_dams(share_pi_across_damsSEXP);
     Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
-    rcpp_result_gen = Rcpp::wrap(pairwise_rf_estimation_multi_parallel_cpp(G_list, M_list, lambda, r_start, tol, maxit, tiny, share_pi_across_dams, verbose));
+    rcpp_result_gen = Rcpp::wrap(pairwise_rf_estimation_multi_parallel_cpp(G_list, M_list, lambda, q0, r_start, tol, maxit, tiny, share_pi_across_dams, verbose));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -130,7 +131,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_HSMap_hmm_hs_joint_cpp", (DL_FUNC) &_HSMap_hmm_hs_joint_cpp, 12},
     {"_HSMap_loglik_hs_cpp", (DL_FUNC) &_HSMap_loglik_hs_cpp, 6},
     {"_HSMap_simulate_offspring_cpp", (DL_FUNC) &_HSMap_simulate_offspring_cpp, 7},
-    {"_HSMap_pairwise_rf_estimation_multi_parallel_cpp", (DL_FUNC) &_HSMap_pairwise_rf_estimation_multi_parallel_cpp, 9},
+    {"_HSMap_pairwise_rf_estimation_multi_parallel_cpp", (DL_FUNC) &_HSMap_pairwise_rf_estimation_multi_parallel_cpp, 10},
     {NULL, NULL, 0}
 };
 

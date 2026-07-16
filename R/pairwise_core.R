@@ -7,23 +7,33 @@
 #' @param G_list List of integer genotype matrices (offspring x markers), values in \code{\{0,1,2,NA\}}.
 #' @param M_list List of integer maternal genotype vectors (length T), values in \code{\{0,1,2,NA\}}.
 #'   \code{M_list[[1]]} must be named to define the canonical marker order.
-#' @param lambda Numeric scalar (default \code{20}); shrinkage weight used internally.
+#' @param lambda Numeric scalar (default \code{20}); total pseudocount for the
+#'   dam-specific paternal gametic-frequency prior (\code{alpha = lambda * q0},
+#'   \code{beta = lambda * (1 - q0)}).
+#' @param q0 Numeric prior mean for the paternal gametic frequency (default
+#'   \code{0.5}); the pseudocount target that \code{q_k^(d)} is shrunk toward.
 #' @param r_start Ignored; kept for API compatibility.
 #' @param tol Numeric convergence tolerance for the golden search (default \code{1e-6}).
 #' @param maxit Integer maximum iterations per pair (default \code{200}).
 #' @param tiny Numeric floor to avoid \code{log(0)} (default \code{1e-12}).
-#' @param share_pi_across_dams Logical; reserved for API compatibility (default \code{FALSE}).
+#' @param share_pi_across_dams Logical; if \code{FALSE} (default) \code{q_k^(d)} is
+#'   estimated per dam; if \code{TRUE} the AA/aa counts are pooled across dams to a
+#'   single per-marker \code{q}.
 #' @param verbose Logical; reserved for future use (default \code{FALSE}).
 #' @param n_threads Integer number of threads; \code{NULL} for the backend default.
 #'
-#' @return A list with matrices \code{r}, \code{lod_r}, \code{lod_ph}, \code{logLik} (all T x T),
-#' and a \code{mom_phase_list} of length \code{length(G_list)} with per-dam phase calls.
+#' @return A list with matrices \code{r}, \code{lod_r}, \code{lod_ph}, \code{logLik}
+#' (all T x T); \code{mom_phase_list} (per-dam phase calls); \code{lod_ph_list}
+#' (per-dam phase-LOD matrices, whose elementwise sum is \code{lod_ph}); and
+#' \code{q_list} (per-dam, per-marker paternal gametic frequencies, \code{NA} where
+#' the dam is not heterozygous).
 #'
 #' @keywords internal
 #' @noRd
 cpp_pairwise_rf <- function(G_list,
                             M_list,
                             lambda = 20,
+                            q0 = 0.5,
                             r_start = 0.05,
                             tol = 1e-6,
                             maxit = 200,
@@ -72,6 +82,7 @@ cpp_pairwise_rf <- function(G_list,
     G_list = G_list,
     M_list = M_list,
     lambda = lambda,
+    q0 = q0,
     r_start = r_start,
     tol = tol,
     maxit = maxit,
@@ -88,6 +99,8 @@ cpp_pairwise_rf <- function(G_list,
     lod_ph         = res$lod_ph,
     logLik         = res$logLik,
     mom_phase_list = res$mom_phase_list,
+    lod_ph_list    = res$lod_ph_list,
+    q_list         = res$q_list,
     markers        = markers,
     n_dams         = length(G_list)
   )
