@@ -15,7 +15,7 @@ hmm_map(
   paternal_mode = c("gametic", "HWE", "per_marker", "two_locus"),
   r_start = 0.05,
   lambda = 20,
-  maxit = 200,
+  maxit = 1000,
   q_prior_in = NULL,
   pi_prior_in = NULL,
   Pi_prior_in = NULL,
@@ -45,7 +45,9 @@ Default is \code{1} (the most common use: one family).}
 \item{epsilon}{Genotyping error rate used in emissions (in \code{[0,1)}).
 Default \code{0.01}.}
 
-\item{tol}{Convergence tolerance for EM. Default \code{1e-4}.}
+\item{tol}{Convergence tolerance for EM: relative change in the active objective
+(observed log-likelihood, or penalized objective when \code{lambda > 0}) and the
+maximum change in the identifiable parameters \code{r} and \code{q}. Default \code{1e-6}.}
 
 \item{pi_mode}{Retained for backward compatibility only and \strong{ignored} by the
 identifiable paternal model (the paternal contribution is a single per-marker
@@ -84,7 +86,8 @@ it is \strong{not} a statistically validated recommendation. It can over-shrink
 the corrected engine is needed to choose a default). See \code{q_prior_in};
 set \eqn{\alpha=\beta=0} for no regularization.}
 
-\item{maxit}{Maximum EM iterations. Default \code{200}.}
+\item{maxit}{Maximum EM iterations. Default \code{1000}. The R wrapper warns if
+the EM has not converged within \code{maxit}.}
 
 \item{q_prior_in}{Optional gametic prior on the paternal gametic frequency
 \eqn{q_k}, supplied as \strong{pseudocounts}. One of: \code{NULL} (default;

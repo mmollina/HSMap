@@ -15,7 +15,7 @@ hmm_map_joint(
   paternal_mode = c("gametic", "HWE", "per_marker", "two_locus"),
   r_start = 0.05,
   lambda = 20,
-  maxit = 200,
+  maxit = 1000,
   q_prior_list = NULL,
   pi_prior_list = NULL,
   Pi_prior_list = NULL
@@ -35,7 +35,8 @@ current setting unchanged.}
 
 \item{epsilon}{Genotyping error rate in emissions. Default \code{0.01}.}
 
-\item{tol}{EM convergence tolerance (on log-likelihood and \code{r}). Default \code{1e-4}.}
+\item{tol}{EM convergence tolerance: relative change in the active objective and
+the maximum change in the identifiable parameters \code{r} and \code{q}. Default \code{1e-6}.}
 
 \item{pi_mode}{Retained for backward compatibility only and ignored by the
 identifiable paternal model.}
@@ -58,7 +59,8 @@ historical default, kept for backward compatibility only and \strong{not} a
 statistically validated recommendation. See \code{\link{hmm_map}}'s
 \code{q_prior_in}.}
 
-\item{maxit}{Maximum EM iterations. Default \code{200}.}
+\item{maxit}{Maximum EM iterations. Default \code{1000}. The R wrapper warns if
+the joint EM has not converged within \code{maxit}.}
 
 \item{q_prior_list}{Optional gametic pseudocount prior on the dam-specific
 \eqn{q_k^{(d)}}, shared across dams or per dam. Either a single spec applied to

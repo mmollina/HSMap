@@ -39,7 +39,7 @@ test_that("joint multi-dam returns a shared map usable downstream", {
 
   # hmm_map default method = "joint"
   m <- hmm_map(dat, phased = oph, dam = "all", epsilon = 0.01,
-               paternal_mode = "gametic", tol = 1e-6, maxit = 300)
+               paternal_mode = "gametic", tol = 1e-6, maxit = 3000)
 
   expect_s3_class(m, "HSMap.map")
   expect_true(inherits(m, "HSMap.map.joint"))
@@ -79,7 +79,7 @@ test_that("joint is less sensitive to r_start than the consensus (informed inter
   fit_r <- function(method, rs) {
     res <- hmm_map(dat, phased = oph, dam = "all", method = method,
                    epsilon = 0.01, paternal_mode = "gametic",
-                   r_start = rs, tol = 1e-6, maxit = 300)
+                   r_start = rs, tol = 1e-6, maxit = 3000)
     if (method == "joint") as.numeric(res$fit$r) else as.numeric(res$consensus$r)
   }
   j_lo <- fit_r("joint", 0.05);     j_hi <- fit_r("joint", 0.25)
@@ -102,7 +102,7 @@ test_that("calc_haploprob decodes the joint shared map", {
   dat <- make_dat(sim); mk <- sim$truth$markers_union
   oph <- oracle_multi(sim, mk)
   m <- hmm_map(dat, phased = oph, dam = "all", epsilon = 0.01,
-               paternal_mode = "gametic", tol = 1e-6, maxit = 200)
+               paternal_mode = "gametic", tol = 1e-6, maxit = 3000)
   expect_true(inherits(m, "HSMap.map.joint"))
 
   gp <- calc_haploprob(dat, m)                # default: all dams

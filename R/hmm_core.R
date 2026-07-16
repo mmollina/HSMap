@@ -24,7 +24,9 @@
 #'   \code{NULL}, the current setting is not changed.
 #' @param epsilon Genotyping error rate used in emissions (in \code{[0,1)}).
 #'   Default \code{0.01}.
-#' @param tol Convergence tolerance for EM. Default \code{1e-4}.
+#' @param tol Convergence tolerance for EM: relative change in the active objective
+#'   (observed log-likelihood, or penalized objective when \code{lambda > 0}) and the
+#'   maximum change in the identifiable parameters \code{r} and \code{q}. Default \code{1e-6}.
 #' @param pi_mode Retained for backward compatibility only and **ignored** by the
 #'   identifiable paternal model (the paternal contribution is a single per-marker
 #'   allele frequency; see \code{paternal_mode}).
@@ -78,7 +80,8 @@
 #'   \eqn{q} at extreme paternal gametic frequencies (a separate simulation study on
 #'   the corrected engine is needed to choose a default). See \code{q_prior_in};
 #'   set \eqn{\alpha=\beta=0} for no regularization.
-#' @param maxit Maximum EM iterations. Default \code{200}.
+#' @param maxit Maximum EM iterations. Default \code{1000}. The R wrapper warns if
+#'   the EM has not converged within \code{maxit}.
 #' @param pi_prior_in Optional 3 x T paternal prior (legacy). Only its implied
 #'   gametic allele frequency \eqn{q^{(0)}_k = \pi^{(0)}_{AA} +
 #'   \tfrac12\pi^{(0)}_{Aa}} is used (the genotype split is not identifiable);
@@ -168,7 +171,7 @@ hmm_map <- function(
     paternal_mode = c("gametic", "HWE", "per_marker", "two_locus"),
     r_start = 0.05,
     lambda = 20,
-    maxit = 200,
+    maxit = 1000,
     q_prior_in = NULL,
     pi_prior_in = NULL,
     Pi_prior_in = NULL,
@@ -301,6 +304,14 @@ hmm_map <- function(
       paternal_mode = eff_paternal,
       Pi_prior_in = if (is.null(Pi_prior_in)) NULL else Pi_prior_in
     )
+
+    if (isFALSE(fit$converged))
+      warning("hmm_map(): EM did not converge for dam '", dam_id, "' in ", fit$iters,
+              " iterations (reason: ", fit$conv_reason, "). Increase `maxit` or relax ",
+              "`tol`; the returned estimates are the last iterate.", call. = FALSE)
+    if (isTRUE(fit$objective_decreased))
+      warning("hmm_map(): the active EM objective decreased materially for dam '",
+              dam_id, "'; results may be unreliable.", call. = FALSE)
 
     # Canonical identifiable paternal output: q_k = P(paternal gamete transmits A)
     # = pi_AA + 0.5*pi_Aa. `fit$pi` is retained only as the derived HWE-form

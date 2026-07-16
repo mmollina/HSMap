@@ -22,7 +22,8 @@
 #' @param threads Integer threads for \pkg{RcppParallel}; \code{NULL} leaves the
 #'   current setting unchanged.
 #' @param epsilon Genotyping error rate in emissions. Default \code{0.01}.
-#' @param tol EM convergence tolerance (on log-likelihood and \code{r}). Default \code{1e-4}.
+#' @param tol EM convergence tolerance: relative change in the active objective and
+#'   the maximum change in the identifiable parameters \code{r} and \code{q}. Default \code{1e-6}.
 #' @param paternal_mode Paternal model, one of
 #'   \code{c("gametic","HWE","per_marker","two_locus")}, default \code{"gametic"}.
 #'   \code{"gametic"} (and its identical alias \code{"HWE"}) parameterizes the
@@ -50,7 +51,8 @@
 #'   historical default, kept for backward compatibility only and \strong{not} a
 #'   statistically validated recommendation. See \code{\link{hmm_map}}'s
 #'   \code{q_prior_in}.
-#' @param maxit Maximum EM iterations. Default \code{200}.
+#' @param maxit Maximum EM iterations. Default \code{1000}. The R wrapper warns if
+#'   the joint EM has not converged within \code{maxit}.
 #' @param pi_prior_list,Pi_prior_list Optional named lists of per-dam priors
 #'   (\code{3 x T} for Model A, \code{10 x (T-1)} for \code{two_locus}).
 #'
@@ -77,7 +79,7 @@ hmm_map_joint <- function(
     paternal_mode = c("gametic", "HWE", "per_marker", "two_locus"),
     r_start = 0.05,
     lambda = 20,
-    maxit = 200,
+    maxit = 1000,
     q_prior_list = NULL,
     pi_prior_list = NULL,
     Pi_prior_list = NULL
@@ -231,6 +233,14 @@ hmm_map_joint <- function(
     paternal_mode = eff_paternal,
     Pi_prior_list_in = Pi_prior_list
   )
+
+  if (isFALSE(fit$converged))
+    warning("hmm_map_joint(): joint EM did not converge in ", fit$iters,
+            " iterations (reason: ", fit$conv_reason, "). Increase `maxit` or relax ",
+            "`tol`; the returned estimates are the last iterate.", call. = FALSE)
+  if (isTRUE(fit$objective_decreased))
+    warning("hmm_map_joint(): the active EM objective decreased materially; ",
+            "results may be unreliable.", call. = FALSE)
 
   # Canonical identifiable paternal output per dam: q_k = pi_AA + 0.5*pi_Aa.
   # fit$pi_list is retained only as the derived HWE-form emission table used by

@@ -12,7 +12,7 @@ test_that("heterogeneity test runs on a homogeneous joint map and finds eta ~ 1"
                        paternal_pA_base = 0.4, error_rate = 0.01, seed = 101)
   dat <- make_dat(sim); mk <- sim$truth$markers_union
   jm  <- hmm_map(dat, phased = oracle_multi(sim, mk), dam = "all",
-                 epsilon = 0.01, paternal_mode = "gametic", maxit = 200)
+                 epsilon = 0.01, paternal_mode = "gametic", maxit = 3000)
 
   het <- test_map_heterogeneity(dat, jm)
   expect_s3_class(het, "HSMap.hetero")
@@ -46,7 +46,7 @@ test_that("heterogeneity test detects dams with different maps", {
     class = "HSMap.phased.multi")
 
   jm  <- hmm_map(dat, phased = oph, dam = "all", epsilon = 0.01,
-                 paternal_mode = "gametic", maxit = 200)
+                 paternal_mode = "gametic", maxit = 3000)
   het <- test_map_heterogeneity(dat, jm)
 
   expect_gt(het$eta[["B"]], het$eta[["A"]])           # B has the longer map
@@ -66,7 +66,7 @@ test_that("heterogeneity test reports honest conditional global-scale metadata",
                        paternal_pA_base = 0.4, error_rate = 0.01, seed = 303)
   dat <- make_dat(sim); mk <- sim$truth$markers_union
   jm  <- hmm_map(dat, phased = oracle_multi(sim, mk), dam = "all",
-                 epsilon = 0.01, paternal_mode = "gametic", maxit = 200)
+                 epsilon = 0.01, paternal_mode = "gametic", maxit = 3000)
   het <- test_map_heterogeneity(dat, jm)
 
   # test type + hypothesis structure
@@ -94,7 +94,7 @@ test_that("a boundary eta estimate is flagged", {
                        paternal_pA_base = 0.4, error_rate = 0.01, seed = 404)
   dat <- make_dat(sim); mk <- sim$truth$markers_union
   jm  <- hmm_map(dat, phased = oracle_multi(sim, mk), dam = "all",
-                 epsilon = 0.01, paternal_mode = "gametic", maxit = 200)
+                 epsilon = 0.01, paternal_mode = "gametic", maxit = 3000)
   # a narrow eta_range forces the optimum to the boundary -> flagged
   het <- test_map_heterogeneity(dat, jm, eta_range = c(1.5, 3))
   expect_true(het$any_boundary)

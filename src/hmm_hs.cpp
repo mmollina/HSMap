@@ -541,11 +541,26 @@ Rcpp::List hmm_hs_cpp_parallel(Rcpp::IntegerMatrix G,           // n x T
     }
   };
 
-  double old_ll = -INFINITY;
+  // Active objective: obsLL (lambda=0) or obsLL + q-penalty (gametic/HWE, lambda>0).
+  const bool has_pen = (paternal_mode == "HWE" && lambda > 0.0);
+  auto q_penalty = [&](void)->double {
+    double p = 0.0;
+    if (!has_pen) return 0.0;
+    for (int t=0; t<T; ++t) {
+      const double q  = clamp01(pi(0,t) + 0.5*pi(1,t));
+      const double q0 = pi_prior(0,t) + 0.5*pi_prior(1,t);
+      const double a  = lambda * q0, b = lambda * (1.0 - q0);
+      p += a * std::log(q) + b * std::log(1.0 - q);
+    }
+    return p;
+  };
+  const double OBJ_DEC_TOL = 1e-7;  // material-decrease tolerance for the active objective
+
+  double old_obj = -INFINITY;
   int it = 0, iters_done = 0;
-  bool converged = false;
+  bool converged = false, obj_decreased = false;
   std::string conv_reason = "maxit_reached";
-  std::vector<double> ll_trace, dr_trace;
+  std::vector<double> ll_trace, penobj_trace, obj_trace, dr_trace, dq_trace;
 
   for (it=1; it<=maxit; ++it) {
     iters_done = it;
@@ -579,6 +594,10 @@ Rcpp::List hmm_hs_cpp_parallel(Rcpp::IntegerMatrix G,           // n x T
         r_new[t] = std::min(0.5, std::max(1e-6, r_new[t]));
       }
     }
+
+    // snapshot identifiable q (= P(A) = pi_AA + 0.5 pi_Aa) before the paternal M-step
+    std::vector<double> q_before(T);
+    for (int t=0; t<T; ++t) q_before[t] = pi(0,t) + 0.5*pi(1,t);
 
     // M-step for paternal parameters
     double dpi = 0.0; // only used for Model A
@@ -647,23 +666,39 @@ Rcpp::List hmm_hs_cpp_parallel(Rcpp::IntegerMatrix G,           // n x T
       }
     }
 
-    // total_ll = observed log-likelihood at the CURRENT (r, pi) used in this E-step.
+    // Observed log-likelihood at the params used in THIS E-step (before the M-step),
+    // and the active objective there (obsLL, or obsLL + q-penalty when active). The
+    // penalty is evaluated at the CURRENT q (pi has not yet been updated below? it
+    // has -- so evaluate penalty at q_before to match total_ll's params).
     const double total_ll = worker.ll_sum;
+    double pen_here = 0.0;
+    if (has_pen) for (int t=0; t<T; ++t) {
+      const double q  = clamp01(q_before[t]);
+      const double q0 = pi_prior(0,t) + 0.5*pi_prior(1,t);
+      const double a  = lambda * q0, b = lambda * (1.0 - q0);
+      pen_here += a * std::log(q) + b * std::log(1.0 - q);
+    }
+    const double active_obj = total_ll + pen_here;
     ll_trace.push_back(total_ll);
-    (void) dpi;   // paternal decomposition change is NOT a convergence gate (it is
-                  // a movement along a non-identifiable decomposition of q)
+    penobj_trace.push_back(has_pen ? (total_ll + pen_here) : NA_REAL);
+    obj_trace.push_back(active_obj);
+    (void) dpi;   // non-identifiable paternal decomposition change is NOT a gate
 
-    // r-change (the identifiable parameter) for this M-step
+    // identifiable parameter changes: r and q
     double dr = 0.0;
     for (int t=0; t<T-1; ++t) dr = std::max(dr, std::fabs(r_new[t] - r[t]));
+    double dq = 0.0;
+    for (int t=0; t<T; ++t) dq = std::max(dq, std::fabs((pi(0,t)+0.5*pi(1,t)) - q_before[t]));
     dr_trace.push_back(dr);
+    dq_trace.push_back(dq);
 
-    // Convergence: RELATIVE change in observed log-likelihood AND stable r.
-    const double rel = std::fabs(total_ll - old_ll) / (1.0 + std::fabs(old_ll));
-    const bool conv = (it > 1) && (rel < tol) && (dr < tol);
+    // Convergence on the ACTIVE objective plus stable identifiable r and q.
+    const double rel = std::fabs(active_obj - old_obj) / (1.0 + std::fabs(old_obj));
+    const bool conv = (it > 1) && (rel < tol) && (dr < tol) && (dq < tol);
+    if (it > 1 && active_obj < old_obj - OBJ_DEC_TOL) obj_decreased = true;
 
-    r = r_new; old_ll = total_ll;
-    if (conv) { converged = true; conv_reason = "relative_loglik_and_r_stable"; break; }
+    r = r_new; old_obj = active_obj;
+    if (conv) { converged = true; conv_reason = "relative_objective_and_params_stable"; break; }
   }
 
   // Recompute the observed log-likelihood at the FINAL returned parameters (r, pi),
@@ -676,18 +711,15 @@ Rcpp::List hmm_hs_cpp_parallel(Rcpp::IntegerMatrix G,           // n x T
     parallelReduce(0, static_cast<std::size_t>(n), fw);
     final_ll = fw.ll_sum;
   }
+  const double final_pen = q_penalty();
+  const double final_penobj = final_ll + final_pen;
+  const double final_obj = has_pen ? final_penobj : final_ll;
 
-  // Penalized objective (gametic/HWE q-penalty only): logLik + sum_t[a log q + b log(1-q)].
-  const bool has_pen = (paternal_mode == "HWE" && lambda > 0.0);
-  double pen_obj = final_ll;
-  if (has_pen) {
-    for (int t=0; t<T; ++t) {
-      const double q  = clamp01(pi(0,t) + 0.5*pi(1,t));
-      const double q0 = pi_prior(0,t) + 0.5*pi_prior(1,t);
-      const double a  = lambda * q0, b = lambda * (1.0 - q0);
-      pen_obj += a * std::log(q) + b * std::log(1.0 - q);
-    }
-  }
+  // Append the FINAL values so each trace ends exactly at the returned quantity.
+  ll_trace.push_back(final_ll);
+  penobj_trace.push_back(has_pen ? final_penobj : NA_REAL);
+  obj_trace.push_back(final_obj);
+  if (converged && obj_decreased) conv_reason = "converged_with_objective_decrease";
 
   // annotate pi rows
   CharacterVector rn = CharacterVector::create("AA","Aa","aa");
@@ -695,18 +727,23 @@ Rcpp::List hmm_hs_cpp_parallel(Rcpp::IntegerMatrix G,           // n x T
 
   // outputs
   List out = List::create(
-    _["r"]              = r,
-    _["pi"]             = pi,
-    _["pi_mode"]        = pi_mode,
-    _["logLik"]         = final_ll,          // at the FINAL parameters
-    _["penalized_obj"]  = has_pen ? Rcpp::wrap(pen_obj) : Rcpp::wrap(NA_REAL),
-    _["converged"]      = converged,
-    _["iters"]          = iters_done,        // never exceeds maxit
-    _["conv_reason"]    = conv_reason,
-    _["loglik_trace"]   = Rcpp::wrap(ll_trace),
-    _["max_dr_trace"]   = Rcpp::wrap(dr_trace),
-    _["epsilon"]        = epsilon,
-    _["paternal_mode"]  = paternal_mode
+    _["r"]                  = r,
+    _["pi"]                 = pi,
+    _["pi_mode"]            = pi_mode,
+    _["logLik"]             = final_ll,               // at the FINAL parameters
+    _["penalized_obj"]      = has_pen ? Rcpp::wrap(final_penobj) : Rcpp::wrap(NA_REAL),
+    _["objective"]          = final_obj,              // active convergence objective
+    _["converged"]          = converged,
+    _["iters"]              = iters_done,             // never exceeds maxit
+    _["conv_reason"]        = conv_reason,
+    _["objective_decreased"]= obj_decreased,
+    _["loglik_trace"]       = Rcpp::wrap(ll_trace),
+    _["penalized_obj_trace"]= Rcpp::wrap(penobj_trace),
+    _["objective_trace"]    = Rcpp::wrap(obj_trace),
+    _["max_dr_trace"]       = Rcpp::wrap(dr_trace),
+    _["max_dq_trace"]       = Rcpp::wrap(dq_trace),
+    _["epsilon"]            = epsilon,
+    _["paternal_mode"]      = paternal_mode
   );
   if (paternal_mode == "two_locus") {
     out["Pi_interval"] = Pi;
@@ -971,17 +1008,44 @@ Rcpp::List hmm_hs_joint_cpp(Rcpp::List G_list,                                  
     Pi_prior[d]=PP; Pi[d]=P0;
   }
 
-  double old_ll = -INFINITY;
+  const bool has_pen = (paternal_mode == "HWE" && lambda > 0.0);
+  auto q_penalty_joint = [&](void)->double {          // penalty summed over dams+markers
+    if (!has_pen) return 0.0;
+    double p = 0.0;
+    for (int d=0; d<D; ++d) for (int t=0; t<T; ++t) {
+      const double q  = clamp01(pi[d](0,t) + 0.5*pi[d](1,t));
+      const double q0 = pi_prior[d](0,t) + 0.5*pi_prior[d](1,t);
+      const double a  = lambda * q0, b = lambda * (1.0 - q0);
+      p += a * std::log(q) + b * std::log(1.0 - q);
+    }
+    return p;
+  };
+  const double OBJ_DEC_TOL = 1e-7;
+
+  double old_obj = -INFINITY;
   int it = 0, iters_done = 0;
-  bool converged = false;
+  bool converged = false, obj_decreased = false;
   std::string conv_reason = "maxit_reached";
-  std::vector<double> ll_trace, dr_trace;
+  std::vector<double> ll_trace, penobj_trace, obj_trace, dr_trace, dq_trace;
 
   for (it=1; it<=maxit; ++it) {
     iters_done = it;
     std::vector<double> Nrec(T-1, 0.0), Nnon(T-1, 0.0);
     double total_ll = 0.0;
     double dpi = 0.0;
+
+    // snapshot identifiable q for every dam/marker (before this iteration's M-steps)
+    std::vector<std::vector<double>> q_before(D, std::vector<double>(T));
+    double pen_here = 0.0;
+    for (int d=0; d<D; ++d) for (int t=0; t<T; ++t) {
+      q_before[d][t] = pi[d](0,t) + 0.5*pi[d](1,t);
+      if (has_pen) {
+        const double q  = clamp01(q_before[d][t]);
+        const double q0 = pi_prior[d](0,t) + 0.5*pi_prior[d](1,t);
+        const double a  = lambda * q0, b = lambda * (1.0 - q0);
+        pen_here += a * std::log(q) + b * std::log(1.0 - q);
+      }
+    }
 
     for (int d=0; d<D; ++d) {
       // emission table for this dam
@@ -1046,15 +1110,26 @@ Rcpp::List hmm_hs_joint_cpp(Rcpp::List G_list,                                  
       dr=std::max(dr, std::fabs(r_new[t]-r[t]));
     }
 
-    ll_trace.push_back(total_ll);
-    dr_trace.push_back(dr);
-    (void) dpi;  // paternal decomposition change does NOT gate convergence
+    // active objective at the params used in this iteration's E-step
+    const double active_obj = total_ll + pen_here;
+    // identifiable q change across all dams/markers
+    double dq = 0.0;
+    for (int d=0; d<D; ++d) for (int t=0; t<T; ++t)
+      dq = std::max(dq, std::fabs((pi[d](0,t)+0.5*pi[d](1,t)) - q_before[d][t]));
 
-    // Convergence: RELATIVE observed-log-likelihood change AND stable shared r.
-    const double rel = std::fabs(total_ll - old_ll) / (1.0 + std::fabs(old_ll));
-    const bool conv = (it > 1) && (rel < tol) && (dr < tol);
-    r = r_new; old_ll = total_ll;
-    if (conv) { converged = true; conv_reason = "relative_loglik_and_r_stable"; break; }
+    ll_trace.push_back(total_ll);
+    penobj_trace.push_back(has_pen ? (total_ll + pen_here) : NA_REAL);
+    obj_trace.push_back(active_obj);
+    dr_trace.push_back(dr);
+    dq_trace.push_back(dq);
+    (void) dpi;  // non-identifiable paternal decomposition change does NOT gate
+
+    // Convergence on the ACTIVE objective plus stable shared r and identifiable q.
+    const double rel = std::fabs(active_obj - old_obj) / (1.0 + std::fabs(old_obj));
+    const bool conv = (it > 1) && (rel < tol) && (dr < tol) && (dq < tol);
+    if (it > 1 && active_obj < old_obj - OBJ_DEC_TOL) obj_decreased = true;
+    r = r_new; old_obj = active_obj;
+    if (conv) { converged = true; conv_reason = "relative_objective_and_params_stable"; break; }
   }
 
   const int iters = iters_done;   // never exceeds maxit
@@ -1070,16 +1145,13 @@ Rcpp::List hmm_hs_joint_cpp(Rcpp::List G_list,                                  
     final_ll += fw.ll_sum;
   }
   // Penalized objective (gametic/HWE q-penalty), summed over dams and markers.
-  const bool has_pen = (paternal_mode == "HWE" && lambda > 0.0);
-  double pen_obj = final_ll;
-  if (has_pen) {
-    for (int d=0; d<D; ++d) for (int t=0; t<T; ++t) {
-      const double q  = clamp01(pi[d](0,t) + 0.5*pi[d](1,t));
-      const double q0 = pi_prior[d](0,t) + 0.5*pi_prior[d](1,t);
-      const double a  = lambda * q0, b = lambda * (1.0 - q0);
-      pen_obj += a * std::log(q) + b * std::log(1.0 - q);
-    }
-  }
+  const double final_pen = q_penalty_joint();
+  const double final_penobj = final_ll + final_pen;
+  const double final_obj = has_pen ? final_penobj : final_ll;
+  ll_trace.push_back(final_ll);
+  penobj_trace.push_back(has_pen ? final_penobj : NA_REAL);
+  obj_trace.push_back(final_obj);
+  if (converged && obj_decreased) conv_reason = "converged_with_objective_decrease";
 
   // outputs
   CharacterVector rn = CharacterVector::create("AA","Aa","aa");
@@ -1093,19 +1165,24 @@ Rcpp::List hmm_hs_joint_cpp(Rcpp::List G_list,                                  
   if (!Rf_isNull(dn)) pi_list.attr("names") = dn;
 
   List out = List::create(
-    _["r"]              = r,
-    _["pi_list"]        = pi_list,
-    _["pi_mode"]        = pi_mode,
-    _["logLik"]         = final_ll,          // at the FINAL parameters
-    _["penalized_obj"]  = has_pen ? Rcpp::wrap(pen_obj) : Rcpp::wrap(NA_REAL),
-    _["iters"]          = iters,             // never exceeds maxit
-    _["converged"]      = converged,
-    _["conv_reason"]    = conv_reason,
-    _["loglik_trace"]   = Rcpp::wrap(ll_trace),
-    _["max_dr_trace"]   = Rcpp::wrap(dr_trace),
-    _["epsilon"]        = epsilon,
-    _["paternal_mode"]  = paternal_mode,
-    _["n_dams"]         = D
+    _["r"]                  = r,
+    _["pi_list"]            = pi_list,
+    _["pi_mode"]            = pi_mode,
+    _["logLik"]             = final_ll,          // at the FINAL parameters
+    _["penalized_obj"]      = has_pen ? Rcpp::wrap(final_penobj) : Rcpp::wrap(NA_REAL),
+    _["objective"]          = final_obj,
+    _["objective_decreased"]= obj_decreased,
+    _["iters"]              = iters,             // never exceeds maxit
+    _["converged"]          = converged,
+    _["conv_reason"]        = conv_reason,
+    _["loglik_trace"]       = Rcpp::wrap(ll_trace),
+    _["penalized_obj_trace"]= Rcpp::wrap(penobj_trace),
+    _["objective_trace"]    = Rcpp::wrap(obj_trace),
+    _["max_dr_trace"]       = Rcpp::wrap(dr_trace),
+    _["max_dq_trace"]       = Rcpp::wrap(dq_trace),
+    _["epsilon"]            = epsilon,
+    _["paternal_mode"]      = paternal_mode,
+    _["n_dams"]             = D
   );
   if (paternal_mode == "two_locus") {
     List Pi_list(D), emis_list(D);
