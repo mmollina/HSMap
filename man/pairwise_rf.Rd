@@ -16,7 +16,8 @@ pairwise_rf(
   maxit = 200,
   tiny = 1e-12,
   return_diagnostics = FALSE,
-  return_input = FALSE
+  return_input = FALSE,
+  ...
 )
 }
 \arguments{

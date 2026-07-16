@@ -8,6 +8,8 @@ phase_from_pairwise(
   tpt,
   order,
   dam = "all",
+  min_phase_lod = 0,
+  tie_tol = 1e-08,
   anchor_idx = 1L,
   anchor_label = 0L,
   max_passes = 50L,
@@ -17,65 +19,56 @@ phase_from_pairwise(
 }
 \arguments{
 \item{tpt}{An object of class \code{HSMap.tpt}. Must contain
-\code{tpt$fit$mom_phase_list} (a list of per-dam 0/1 matrices:
-1=coupling, 0=repulsion) and \code{tpt$fit$lod_ph} (non-negative
-LOD support matrix), with identical dimnames.}
+\code{tpt$fit$mom_phase_list} (per-dam 0/1 phase matrices) and per-dam LOD
+support in \code{tpt$fit$lod_ph_list} (falling back to the pooled
+\code{tpt$fit$lod_ph} with a warning if the per-dam list is absent).}
 
-\item{order}{Character vector with SNP marker IDs in the desired linear order.
-Only markers present in \code{tpt} are used; missing names are dropped with
-a warning.}
+\item{order}{Character vector with marker IDs in the desired linear order.
+Markers absent for a dam are dropped with a warning.}
 
-\item{dam}{Which dam(s) to phase. One of:
-\itemize{
-\item a single dam name (matching \code{names(tpt$fit$mom_phase_list)})
-or integer index,
-\item a vector of dam names or indices,
-\item \code{"all"} to process every dam available.
-}
-Default \code{"all"}.}
+\item{dam}{Which dam(s): a dam name/index, a vector of them, or \code{"all"}
+(default).}
 
-\item{anchor_idx}{Integer index within \code{order} to fix an absolute label
-(breaks the global sign symmetry). Default \code{1}.}
+\item{min_phase_lod}{Minimum phase LOD for an edge to be treated as supported
+(default \code{0}). Even at the default, edges with zero/near-zero evidence are
+excluded (see \code{tie_tol}); an edge counts only when its LOD strictly exceeds
+\code{max(min_phase_lod, tie_tol)}.}
 
-\item{anchor_label}{Integer in \code{c(0,1)} to fix the label at
-\code{order[anchor_idx]} (0 means homolog 0, 1 means homolog 1). Default \code{0}.}
+\item{tie_tol}{Numerical tolerance below which a coupling-vs-repulsion LOD is
+treated as an unresolved tie (default \code{1e-8}).}
 
-\item{max_passes}{Maximum greedy passes. Default \code{50}.}
+\item{anchor_idx}{Integer index in \code{order} whose component is sign-anchored
+(breaks that component's sign symmetry only). Default \code{1}.}
 
-\item{tol}{Non-negative improvement tolerance. Default \code{1e-9}.}
+\item{anchor_label}{Integer in \code{c(0,1)} for the anchor marker. Default \code{0}.}
+
+\item{max_passes}{Maximum greedy passes per component. Default \code{50}.}
+
+\item{tol}{Non-negative improvement tolerance for greedy ascent. Default \code{1e-9}.}
 
 \item{verbose}{Logical; print progress. Default \code{FALSE}.}
 }
 \value{
-If a single dam is requested, returns an \code{HSMap.phased}:
-\itemize{
-\item \code{dam} Dam label.
-\item \code{order} Marker order used (after dropping missing).
-\item \code{clusters} Integer vector in \code{c(0,1)} (homolog assignment).
-\item \code{phase_vec} Integer vector length \code{length(order)-1}, 1=coupling, 0=repulsion.
-\item \code{objective}, \code{weighted_agreement}, \code{iters}, \code{converged}.
-}
-If multiple dams are requested (including \code{"all"}), returns an
-\code{HSMap.phased.multi}: a named list of \code{HSMap.phased} objects (one per dam).
+For a single dam, an \code{HSMap.phased} with (among others): \code{order};
+\code{clusters} (0/1 homolog labels, meaningful only within a component);
+\code{component} (component ID per marker); \code{phase_vec} (length
+\code{T-1}; 1=coupling, 0=repulsion for resolved adjacent intervals, \code{NA}
+for unresolved ones); \code{resolved_interval} and \code{interval_support};
+\code{n_components}, \code{component_sizes}; \code{unresolved_markers},
+\code{unresolved_intervals}; \code{objective}, \code{component_objective},
+\code{converged}, \code{n_flips}. Multiple dams return an
+\code{HSMap.phased.multi} (a named list).
 }
 \description{
-Convert pairwise maternal phase calls and their LOD support into a robust,
-ordered phase string along a user-supplied marker order. Supports one dam
-or more dams in a single call. Internally it builds a signed, LOD-weighted
-pairwise matrix and optimizes a 2-cluster assignment (homolog 0 vs 1)
-with a spectral initialization followed by greedy coordinate ascent.
-}
-\details{
-Let \code{A} be the dam-specific pairwise phase matrix (1=coupling, 0=repulsion,
-NA uninformative) and \code{W} be the \code{lod_ph} matrix (non-negative). The
-algorithm builds \code{S = sign(2*A - 1)} (so coupling=+1, repulsion=-1, NA=0)
-and sets diagonal to 0. It then forms a symmetric signed weight matrix
-\code{J = (S * W)}, symmetrized. A spectral initialization uses the leading
-eigenvector of \code{J} to seed a +/-1 assignment; the assignment is flipped
-so that \code{order[anchor_idx]} matches \code{anchor_label}. A greedy
-coordinate ascent flips markers that improve the quadratic objective
-\code{sum_{i<j} J\[i,j\] * x\[i\] * x\[j\]} until no flip exceeds \code{tol} or
-\code{max_passes} passes are reached. The final 0/1 clusters define the
-adjacent phase vector: phase[t]=1 (coupling) when clusters[t]==clusters[t+1],
-otherwise 0 (repulsion).
+Convert dam-specific pairwise maternal phase calls and their LOD support into an
+ordered phase assignment along a user-supplied marker order, honestly separating
+resolved from unresolved phase.
+
+The signed, LOD-weighted phase graph is built \strong{separately for each dam} from
+that dam's own \code{lod_ph_list[[d]]} (not the pooled \code{lod_ph}). Only edges with an
+available phase sign, finite LOD, and LOD above the support threshold are used.
+The graph is split into connected components; within each component a spectral
+initialization and greedy coordinate ascent orient the markers (a heuristic, not
+guaranteed globally optimal). The relative orientation of different components is
+\strong{unidentified} and is reported as unresolved rather than forced to coupling.
 }
