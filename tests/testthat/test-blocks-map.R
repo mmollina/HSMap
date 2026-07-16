@@ -25,7 +25,7 @@ test_that("blockwise fitting splits at unresolved intervals", {
   expect_identical(mb$blocks[[1]]$markers, d$mk[1:4])
   expect_identical(mb$blocks[[2]]$markers, d$mk[5:8])
   # the between-block interval is reported as such
-  expect_identical(mb$interval_table$status[4], "between_blocks")
+  expect_identical(mb$interval_table$status[4], "unresolved_phase")
 })
 
 test_that("a fully resolved chromosome gives the same result via ordinary and blockwise", {
@@ -80,8 +80,8 @@ test_that("block metadata and interval status remain length-aligned", {
   expect_identical(mb$n_blocks, 3L)
   expect_identical(length(mb$block_id), length(d$mk))
   expect_identical(nrow(mb$interval_table), length(d$mk) - 1L)
-  expect_identical(sum(mb$interval_table$status == "between_blocks"), 2L)
-  # every within-block interval has a finite fitted r; between-block intervals are NA
-  expect_true(all(is.na(mb$interval_table$r[mb$interval_table$status == "between_blocks"])))
+  expect_identical(sum(mb$interval_table$status == "unresolved_phase"), 2L)
+  # every within-block interval has a finite fitted r; boundary intervals are NA
+  expect_true(all(is.na(mb$interval_table$r[mb$interval_table$status == "unresolved_phase"])))
   expect_true(all(is.finite(mb$interval_table$r[mb$interval_table$status == "linked"])))
 })

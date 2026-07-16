@@ -138,9 +138,11 @@ resolved phase blocks and fits the shared joint EM **within each block**:
 ```{r}
 joint <- hmm_map_blocks(dat3, ph3)     # fits the joint map within each resolved block
 joint$n_blocks                          # number of resolved phase blocks
-# total finite, linked map length summed across blocks (unlinked/unresolved -> gaps)
-sum(vapply(joint$blocks, function(b)
-  if (is.null(b$fit)) 0 else sum(inv_haldane(as.numeric(b$fit$fit$r))), numeric(1)))
+# Safe map summary: gaps (no-linkage / unresolved) are NA, never huge cM. Never use
+# raw sum(inv_haldane(r)) here, because r may contain a no-linkage boundary.
+bm <- get_block_map(joint, "haldane")
+bm$total_linked_length                  # finite linked cM summed across blocks
+table(bm$interval_table$status)         # linked / gap classification per interval
 ```
 
 Each block carries a valid ordered marker set with resolved phase for its contributing

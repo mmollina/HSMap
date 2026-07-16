@@ -4,7 +4,7 @@
 \alias{hmm_map_blocks}
 \title{Blockwise multipoint fitting across unresolved phase}
 \usage{
-hmm_map_blocks(x, phased, ..., min_block_markers = 2L)
+hmm_map_blocks(x, phased, ..., min_block_markers = 2L, gap_r = 0.499)
 }
 \arguments{
 \item{x}{An \code{HSMap.data} object.}
@@ -18,13 +18,20 @@ e.g. \code{epsilon}, \code{paternal_mode}, \code{lambda}, \code{q_prior_in},
 
 \item{min_block_markers}{Minimum markers for a block to be fitted (default 2).
 Smaller blocks are retained in metadata but not estimated.}
+
+\item{gap_r}{No-linkage threshold (default \code{0.499}). A within-block interval
+whose fitted \code{r} is at or above \code{gap_r} is classified as a
+\code{no_linkage_boundary} (a gap), not \code{linked}.}
 }
 \value{
 An \code{HSMap.map.blocks}: a list with \code{blocks} (one entry per block,
 each with \code{markers}, \code{block}, \code{contributing_dams}, and the block
 \code{fit} or \code{NULL}), \code{block_id} (per marker), \code{unresolved_boundaries}
-(interval indices that separate blocks), \code{n_blocks}, and \code{interval_table}
-(per adjacent interval: markers, block, status, and fitted r where available).
+(interval indices that separate blocks), \code{n_blocks}, \code{gap_r}, and
+\code{interval_table} (per adjacent interval: markers, block, fitted r, and a
+\code{status} that is one of \code{linked}, \code{no_linkage_boundary},
+\code{unresolved_phase}, \code{between_blocks}, \code{insufficient_information}).
+Use \code{\link[=get_block_map]{get_block_map()}} for safe positions/lengths and \code{\link[=plot_block_map]{plot_block_map()}} to plot.
 }
 \description{
 Fit the maternal multipoint HMM only within \strong{resolved phase blocks},
@@ -41,5 +48,5 @@ the joint fit uses only the dams whose phase is fully resolved across that block
 the contributing dams are reported per block.
 }
 \seealso{
-\code{\link[=hmm_map]{hmm_map()}}, \code{\link[=get_map]{get_map()}}
+\code{\link[=hmm_map]{hmm_map()}}, \code{\link[=get_map]{get_map()}}, \code{\link[=get_block_map]{get_block_map()}}, \code{\link[=plot_block_map]{plot_block_map()}}
 }
