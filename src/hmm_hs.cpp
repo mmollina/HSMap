@@ -554,7 +554,7 @@ Rcpp::List hmm_hs_cpp_parallel(Rcpp::IntegerMatrix G,           // n x T
     }
     return p;
   };
-  const double OBJ_DEC_TOL = 1e-7;  // material-decrease tolerance for the active objective
+  const double OBJ_DEC_REL = 1e-8;  // scale-aware material-decrease factor for the active objective
 
   double old_obj = -INFINITY;
   int it = 0, iters_done = 0;
@@ -695,7 +695,7 @@ Rcpp::List hmm_hs_cpp_parallel(Rcpp::IntegerMatrix G,           // n x T
     // Convergence on the ACTIVE objective plus stable identifiable r and q.
     const double rel = std::fabs(active_obj - old_obj) / (1.0 + std::fabs(old_obj));
     const bool conv = (it > 1) && (rel < tol) && (dr < tol) && (dq < tol);
-    if (it > 1 && active_obj < old_obj - OBJ_DEC_TOL) obj_decreased = true;
+    if (it > 1 && active_obj < old_obj - OBJ_DEC_REL * (1.0 + std::fabs(old_obj))) obj_decreased = true;
 
     r = r_new; old_obj = active_obj;
     if (conv) { converged = true; conv_reason = "relative_objective_and_params_stable"; break; }
@@ -719,7 +719,11 @@ Rcpp::List hmm_hs_cpp_parallel(Rcpp::IntegerMatrix G,           // n x T
   ll_trace.push_back(final_ll);
   penobj_trace.push_back(has_pen ? final_penobj : NA_REAL);
   obj_trace.push_back(final_obj);
-  if (converged && obj_decreased) conv_reason = "converged_with_objective_decrease";
+  // The FINAL M-step must not lower the objective either (scale-aware); if any step,
+  // including the final one, decreased the active objective, the fit is NOT normally
+  // converged.
+  if (final_obj < old_obj - OBJ_DEC_REL * (1.0 + std::fabs(old_obj))) obj_decreased = true;
+  if (obj_decreased) { converged = false; conv_reason = "objective_decreased"; }
 
   // annotate pi rows
   CharacterVector rn = CharacterVector::create("AA","Aa","aa");
@@ -1020,7 +1024,7 @@ Rcpp::List hmm_hs_joint_cpp(Rcpp::List G_list,                                  
     }
     return p;
   };
-  const double OBJ_DEC_TOL = 1e-7;
+  const double OBJ_DEC_REL = 1e-8;  // scale-aware material-decrease factor
 
   double old_obj = -INFINITY;
   int it = 0, iters_done = 0;
@@ -1127,7 +1131,7 @@ Rcpp::List hmm_hs_joint_cpp(Rcpp::List G_list,                                  
     // Convergence on the ACTIVE objective plus stable shared r and identifiable q.
     const double rel = std::fabs(active_obj - old_obj) / (1.0 + std::fabs(old_obj));
     const bool conv = (it > 1) && (rel < tol) && (dr < tol) && (dq < tol);
-    if (it > 1 && active_obj < old_obj - OBJ_DEC_TOL) obj_decreased = true;
+    if (it > 1 && active_obj < old_obj - OBJ_DEC_REL * (1.0 + std::fabs(old_obj))) obj_decreased = true;
     r = r_new; old_obj = active_obj;
     if (conv) { converged = true; conv_reason = "relative_objective_and_params_stable"; break; }
   }
@@ -1151,7 +1155,11 @@ Rcpp::List hmm_hs_joint_cpp(Rcpp::List G_list,                                  
   ll_trace.push_back(final_ll);
   penobj_trace.push_back(has_pen ? final_penobj : NA_REAL);
   obj_trace.push_back(final_obj);
-  if (converged && obj_decreased) conv_reason = "converged_with_objective_decrease";
+  // The FINAL M-step must not lower the objective either (scale-aware); if any step,
+  // including the final one, decreased the active objective, the fit is NOT normally
+  // converged.
+  if (final_obj < old_obj - OBJ_DEC_REL * (1.0 + std::fabs(old_obj))) obj_decreased = true;
+  if (obj_decreased) { converged = false; conv_reason = "objective_decreased"; }
 
   // outputs
   CharacterVector rn = CharacterVector::create("AA","Aa","aa");

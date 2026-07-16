@@ -134,3 +134,60 @@ test_that("heterogeneity test accepts a valid block but rejects r=0.5 / NA / non
   jm_up <- jm; jm_up$resolved_interval <- c(FALSE, rep(TRUE, Tm - 2))
   expect_error(test_map_heterogeneity(dat, jm_up), "unresolved")
 })
+
+
+# Commit 3 (final round): uncapped scaling; objective-decreased rejection.
+test_that("heterogeneity scaled map uses the uncapped biological formula (not capped at gap_r)", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  Tm <- 20
+  # a shared high-recombination interval (large Haldane m) + dam B a denser map,
+  # so the scaled r can exceed gap_r for large eta.
+  rv <- c(0.42, runif(Tm - 2, 0.02, 0.08))
+  simA <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 200, marker_intersection = 1,
+                        r_vec = rv, phase_mode = "random", repulsion_rate = 0.3,
+                        maternal_geno_mode = "all_het", paternal_pA_base = 0.4, error_rate = 0.01, seed = 71)
+  simB <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 200, marker_intersection = 1,
+                        r_vec = pmin(rv * 2, 0.45), phase_mode = "random", repulsion_rate = 0.3,
+                        maternal_geno_mode = "all_het", paternal_pA_base = 0.4, error_rate = 0.01, seed = 72)
+  mk <- simA$truth$markers_union
+  dat <- structure(list(G_list = list(A = simA$G_list[[1]], B = simB$G_list[[1]]),
+                        M_list = list(A = simA$M_list[[1]], B = simB$M_list[[1]])), class = "HSMap.data")
+  oph <- structure(list(A = oracle_phased(mk, 1L - simA$truth$v_true[[1]], "A"),
+                        B = oracle_phased(mk, 1L - simB$truth$v_true[[1]], "B")),
+                   class = "HSMap.phased.multi")
+  jm <- hmm_map(dat, phased = oph, dam = "all", epsilon = 0.01, paternal_mode = "gametic", maxit = 3000)
+  het <- test_map_heterogeneity(dat, jm, eta_range = c(0.1, 10))
+
+  r <- pmin(as.numeric(jm$fit$r), 0.5 - 1e-12); m <- -0.5 * log(1 - 2 * r)
+  r_scaled <- function(eta) pmin(0.5 * (1 - exp(-2 * eta * m)), 0.5 - 1e-12)
+  eps <- jm$fit$epsilon %||% 0.01
+  align <- function(dn) {
+    G <- matrix(NA_integer_, nrow(dat$G_list[[dn]]), Tm, dimnames = list(NULL, mk))
+    cg <- intersect(mk, colnames(dat$G_list[[dn]])); G[, cg] <- dat$G_list[[dn]][, cg]; storage.mode(G) <- "integer"
+    M <- rep(NA_integer_, Tm); names(M) <- mk; cm <- intersect(mk, names(dat$M_list[[dn]])); M[cm] <- as.integer(dat$M_list[[dn]][cm])
+    list(G = G, M = M, ph = as.integer(jm$phase_list[[dn]]), emis = as.matrix(jm$fit$pi_list[[dn]]))
+  }
+  for (i in seq_len(nrow(het$per_dam))) {
+    dn <- het$per_dam$dam[i]; eta <- het$eta[[dn]]; a <- align(dn)
+    ll <- HSMap:::loglik_hs_cpp(a$G, a$M, a$ph, r_scaled(eta), a$emis, eps)
+    expect_equal(ll, het$per_dam$ll_alt[i], tolerance = 1e-5)   # function uses r_scaled(eta), uncapped
+  }
+  # the biological scaling is NOT capped at gap_r: at a large eta it reaches above gap_r
+  expect_gt(max(r_scaled(9)), 0.499)
+  expect_lt(max(r_scaled(9)), 0.5)
+})
+
+test_that("heterogeneity rejects a fit whose objective decreased", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  set.seed(606); Tm <- 20
+  sim <- sim_multi_pop(T_markers = Tm, n_pops = 3, n_ind_per_pop = c(120, 120, 120),
+                       marker_intersection = 1, r_vec = rep(0.05, Tm - 1),
+                       phase_mode = "random", repulsion_rate = 0.3, maternal_geno_mode = "all_het",
+                       paternal_pA_base = 0.4, error_rate = 0.01, seed = 606)
+  dat <- make_dat(sim); mk <- sim$truth$markers_union
+  jm  <- hmm_map(dat, phased = oracle_multi(sim, mk), dam = "all",
+                 epsilon = 0.01, paternal_mode = "gametic", maxit = 3000)
+  expect_s3_class(test_map_heterogeneity(dat, jm), "HSMap.hetero")   # normal fit accepted
+  jm_bad <- jm; jm_bad$fit$objective_decreased <- TRUE
+  expect_error(test_map_heterogeneity(dat, jm_bad), "objective_decreased")
+})

@@ -97,11 +97,17 @@ test_map_heterogeneity <- function(dat, map, epsilon = NULL, eta_range = c(0.1, 
   if (isFALSE(fit$converged))
     stop("`map` was fit by an EM that did not converge (converged = FALSE).", msg_tail,
          call. = FALSE)
+  if (isTRUE(fit$objective_decreased))
+    stop("`map` was fit by an EM whose active objective decreased materially ",
+         "(objective_decreased = TRUE); the fit is unreliable.", msg_tail, call. = FALSE)
 
-  # Haldane distances of the shared map (finite, since r < gap_r < 0.5). No silent
-  # clamp of r to 0.5 - eps; the scaled r stays strictly below gap_r by construction.
+  # Haldane distances of the shared map (finite, since the input r < gap_r < 0.5).
+  # The scaled map uses the biological formula r_scaled(eta) = 0.5*(1 - exp(-2*eta*m));
+  # it is NOT capped at gap_r (gap_r is only an input-map validity/reporting threshold).
+  # A scaled r may exceed gap_r when eta > 1 --- that is the whole point of the test.
+  # Only a numerical guard at 0.5 - 1e-12 (independent of gap_r) is applied.
   m  <- -0.5 * log(1 - 2 * r)
-  r_scaled <- function(eta) pmin(0.5 * (1 - exp(-2 * eta * m)), gap_r - 1e-9)
+  r_scaled <- function(eta) pmin(0.5 * (1 - exp(-2 * eta * m)), 0.5 - 1e-12)
 
   # per-dam emission table (3 x T), aligned to the shared order
   emis_for_dam <- function(d) {
