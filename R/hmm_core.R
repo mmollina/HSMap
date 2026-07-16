@@ -264,7 +264,7 @@ hmm_map <- function(
     storage.mode(G_sub) <- "integer"
     M_sub <- as.integer(Mvec[ord])
 
-    # Resolve the paternal prior. A gametic Beta prior (`q_prior_in`) takes
+    # Resolve the paternal prior. A gametic pseudocount prior (`q_prior_in`) takes
     # precedence over a legacy 3xT `pi_prior_in` (which the HWE engine collapses
     # to its induced q anyway).
     if (!is.null(q_prior_in)) {
@@ -379,20 +379,24 @@ hmm_map <- function(
   "HWE"
 }
 
-# Convert a gametic Beta(alpha, beta) prior on q_k into the internal HWE engine's
-# (pi_prior 3xT, lambda) representation. The engine's per-marker paternal M-step
+# Convert a gametic pseudocount prior on q_k (alpha, beta) into the internal HWE
+# engine's (pi_prior 3xT, lambda) representation. The engine's per-marker paternal
+# M-step
 #
 #   q_k^{new} = (N_A,k + alpha_k) / (N_A,k + N_a,k + alpha_k + beta_k)
 #
-# is exactly the Beta(alpha_k, beta_k) posterior mean of q_k given the expected
-# paternal A-/a-gamete counts (N_A, N_a), with alpha_k = lambda * q0_k,
-# beta_k = lambda * (1 - q0_k), and concentration lambda = alpha_k + beta_k.
-# Per-marker prior means q0_k are supported; the concentration (alpha + beta)
-# must be common across markers (the engine takes a scalar lambda).
+# maximizes the penalized objective logLik + sum_k[alpha_k log q_k +
+# beta_k log(1 - q_k)] over the expected paternal A-/a-gamete counts (N_A, N_a);
+# equivalently it is the posterior MODE under a Beta(alpha_k + 1, beta_k + 1)
+# prior (alpha, beta are pseudocounts, not Beta shape parameters). Here
+# alpha_k = lambda * q0_k, beta_k = lambda * (1 - q0_k), and the total pseudocount
+# lambda = alpha_k + beta_k. Per-marker prior means q0_k are supported; the total
+# pseudocount (alpha + beta) must be common across markers (the engine takes a
+# scalar lambda).
 #
 # Accepts: NULL (use lambda_default, engine's uniform prior); a numeric scalar or
-# length-T vector of prior means q0 (concentration = lambda_default); or
-# list(alpha=, beta=) with scalar or length-T entries (explicit Beta).
+# length-T vector of prior means q0 (total pseudocount = lambda_default); or
+# list(alpha=, beta=) with scalar or length-T entries (explicit pseudocounts).
 .hsmap_q_prior_to_engine <- function(q_prior, lambda_default, T) {
   if (is.null(q_prior)) return(list(pi_prior = NULL, lambda = lambda_default))
 
@@ -420,9 +424,9 @@ hmm_map <- function(
     conc <- a + b
     if (all(conc == 0)) return(list(pi_prior = hwe_cols(rep(0.5, T)), lambda = 0))  # no shrinkage
     if (any(conc == 0))
-      stop("mixed zero / non-zero Beta concentration across markers is not supported.", call. = FALSE)
+      stop("mixed zero / non-zero total pseudocount (alpha + beta) across markers is not supported.", call. = FALSE)
     if (diff(range(conc)) > 1e-8 * max(conc))
-      stop("per-marker Beta concentration (alpha + beta) must be constant across markers ",
+      stop("per-marker total pseudocount (alpha + beta) must be constant across markers ",
            "in this version; vary the mean alpha/(alpha+beta) but keep alpha+beta fixed.",
            call. = FALSE)
     return(list(pi_prior = hwe_cols(a / conc), lambda = conc[1]))

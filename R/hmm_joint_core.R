@@ -36,10 +36,13 @@
 #' @param q_prior_list Optional gametic pseudocount prior on \eqn{q_k}, shared
 #'   across dams or per dam. Either a single spec applied to all dams (a numeric
 #'   mean vector, or \code{list(alpha=, beta=)} pseudocounts; see
-#'   \code{\link{hmm_map}}'s \code{q_prior_in}) or a named/positional list of such
-#'   specs, one per dam. Per-dam prior means are supported; the total pseudocount
-#'   \eqn{\alpha+\beta} must be common across dams. Takes precedence over
-#'   \code{pi_prior_list}.
+#'   \code{\link{hmm_map}}'s \code{q_prior_in}) or a per-dam list of such specs.
+#'   A per-dam list must supply \strong{exactly one spec per requested dam}: a
+#'   named list must name every requested dam and no others (missing or unknown
+#'   names are an error); an unnamed list must have one entry per requested dam,
+#'   in the requested-dam order. Per-dam prior means are supported; the total
+#'   pseudocount \eqn{\alpha+\beta} must be common across dams. Takes precedence
+#'   over \code{pi_prior_list}.
 #' @param r_start Initial recombination fraction for all intervals. Default \code{0.05}.
 #' @param lambda Default total pseudocount \eqn{\alpha+\beta} for the gametic
 #'   paternal prior when \code{q_prior_list} is \code{NULL} or a numeric mean.
@@ -162,10 +165,11 @@ hmm_map_joint <- function(
     phase_list[[nm]] <- as.integer(pv)
   }
 
-  # Resolve gametic Beta priors into per-dam engine priors (pi_prior_list) and a
-  # shared concentration (lambda). A single Beta spec is applied to all dams; a
-  # per-dam list is indexed by dam name (or position). The concentration
-  # (alpha + beta) must be common across dams (the engine takes one lambda).
+  # Resolve gametic pseudocount priors into per-dam engine priors (pi_prior_list)
+  # and a shared total pseudocount (lambda). A single spec (numeric mean, or
+  # list(alpha=, beta=)) is applied to all dams; a per-dam list supplies exactly
+  # one spec for every requested dam. The total pseudocount (alpha + beta) must be
+  # common across dams (the engine takes one lambda).
   Tn <- length(ord)
   if (is.null(q_prior_list)) {
     pi_prior_list_eff <- pi_prior_list
@@ -179,14 +183,33 @@ hmm_map_joint <- function(
       lambda_eff <- eng$lambda
     } else {
       if (!is.list(q_prior_list))
-        stop("`q_prior_list` must be NULL, a single Beta spec, or a per-dam list.", call. = FALSE)
-      engs <- lapply(dams_req, function(d) {
-        spec <- if (!is.null(names(q_prior_list))) q_prior_list[[d]] else q_prior_list[[match(d, dams_req)]]
-        .hsmap_q_prior_to_engine(spec, lambda, Tn)
-      })
+        stop("`q_prior_list` must be NULL, a single spec (numeric mean or ",
+             "list(alpha=, beta=)), or a per-dam list of such specs.", call. = FALSE)
+      # per-dam list: exactly one spec per requested dam (no silent defaults)
+      nm <- names(q_prior_list)
+      if (!is.null(nm)) {
+        miss <- setdiff(dams_req, nm)
+        if (length(miss))
+          stop("`q_prior_list` is a per-dam list but is missing prior(s) for dam(s): ",
+               paste(miss, collapse = ", "),
+               ". Provide one spec per requested dam, or a single shared spec.", call. = FALSE)
+        unknown <- setdiff(nm, dams_req)
+        if (length(unknown))
+          stop("`q_prior_list` has unknown dam name(s): ", paste(unknown, collapse = ", "),
+               ". Requested dams: ", paste(dams_req, collapse = ", "), ".", call. = FALSE)
+        specs <- q_prior_list[dams_req]
+      } else {
+        if (length(q_prior_list) != length(dams_req))
+          stop("unnamed `q_prior_list` must have exactly one spec per requested dam (",
+               length(dams_req), "); got ", length(q_prior_list), ".", call. = FALSE)
+        specs <- q_prior_list
+      }
+      if (any(vapply(specs, is.null, logical(1))))
+        stop("`q_prior_list` must supply a non-NULL prior for every requested dam.", call. = FALSE)
+      engs <- lapply(specs, function(spec) .hsmap_q_prior_to_engine(spec, lambda, Tn))
       lams <- vapply(engs, function(e) e$lambda, numeric(1))
       if (diff(range(lams)) > 1e-8 * max(c(lams, 1)))
-        stop("joint fits require a common Beta concentration (alpha + beta) across dams.", call. = FALSE)
+        stop("joint fits require a common total pseudocount (alpha + beta) across dams.", call. = FALSE)
       pi_prior_list_eff <- stats::setNames(lapply(engs, function(e) e$pi_prior), dams_req)
       lambda_eff <- lams[[1]]
     }

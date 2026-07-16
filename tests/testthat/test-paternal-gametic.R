@@ -160,7 +160,7 @@ test_that("fit$q / fit$q_list are the canonical paternal outputs", {
                tolerance = 1e-12)
 })
 
-# ---- M1.1: first-class gametic Beta(alpha, beta) priors -----------------------
+# ---- M1.1: first-class gametic pseudocount priors -----------------------------
 
 test_that("gametic recovers q near 0 and near 1 (no shrinkage)", {
   RcppParallel::setThreadOptions(numThreads = 1)
@@ -234,7 +234,7 @@ test_that("marker-specific q priors set uninformative markers to their own means
   expect_equal(fit$fit$q[[15]], 0.8, tolerance = 1e-6)
 })
 
-test_that("per-marker Beta concentration must be constant across markers", {
+test_that("per-marker total pseudocount (alpha + beta) must be constant across markers", {
   RcppParallel::setThreadOptions(numThreads = 1)
   set.seed(1); Tm <- 10
   sim <- sim_multi_pop(T_markers = Tm, n_pops = 1, n_ind_per_pop = 50,
@@ -246,7 +246,7 @@ test_that("per-marker Beta concentration must be constant across markers", {
   bad <- list(alpha = c(5, rep(10, Tm - 1)), beta = rep(10, Tm))  # alpha+beta not constant
   expect_error(
     hmm_map(dat, phased = oph, dam = 1, paternal_mode = "gametic", q_prior_in = bad),
-    "concentration")
+    "pseudocount")
 })
 
 test_that("legacy pi priors with the same induced q give identical results", {
@@ -347,4 +347,80 @@ test_that("lambda = 20 equals alpha = beta = 10, and the default applies shrinka
   m_0 <- hmm_map(dat, phased = oph, dam = 1, epsilon = 0.01, paternal_mode = "gametic",
                  q_prior_in = list(alpha = 0, beta = 0), tol = 1e-6, maxit = 500)
   expect_false(isTRUE(all.equal(m_20$fit$q, m_0$fit$q)))
+})
+
+# ---- q_prior_list per-dam completeness in hmm_map_joint() ---------------------
+
+mk_joint3 <- function(seed = 22, Tm = 30) {
+  set.seed(seed); r_true <- runif(Tm - 1, 0.01, 0.15)
+  sim <- sim_multi_pop(T_markers = Tm, n_pops = 3, n_ind_per_pop = c(80, 70, 60),
+                       marker_intersection = 1, r_vec = r_true,
+                       phase_mode = "random", repulsion_rate = 0.3,
+                       maternal_geno_mode = "all_het",
+                       paternal_pA_base = 0.4, paternal_pA_sd = 0.05,
+                       error_rate = 0.01, seed = seed)
+  mk <- sim$truth$markers_union
+  list(dat = make_dat(sim), oph = oracle_multi(sim, mk), dn = names(sim$G_list))
+}
+
+test_that("q_prior_list: a single shared spec applies to all dams", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  j <- mk_joint3()
+  m_shared <- hmm_map_joint(j$dat, phased = j$oph, dam = "all", epsilon = 0.01,
+                            paternal_mode = "gametic", q_prior_list = list(alpha = 3, beta = 3),
+                            tol = 1e-6, maxit = 300)
+  per <- stats::setNames(rep(list(list(alpha = 3, beta = 3)), 3), j$dn)
+  m_perdam <- hmm_map_joint(j$dat, phased = j$oph, dam = "all", epsilon = 0.01,
+                            paternal_mode = "gametic", q_prior_list = per,
+                            tol = 1e-6, maxit = 300)
+  expect_equal(as.numeric(m_shared$fit$r), as.numeric(m_perdam$fit$r), tolerance = 1e-10)
+  # a single numeric mean also applies to all dams
+  m_num <- hmm_map_joint(j$dat, phased = j$oph, dam = "all", epsilon = 0.01,
+                         paternal_mode = "gametic", q_prior_list = 0.3, tol = 1e-6, maxit = 200)
+  expect_length(m_num$fit$q_list, 3L)
+})
+
+test_that("q_prior_list: complete named and positional per-dam lists work and agree", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  j <- mk_joint3()
+  named <- stats::setNames(list(list(alpha = 2, beta = 8), list(alpha = 5, beta = 5),
+                                list(alpha = 8, beta = 2)), j$dn)   # common concentration = 10
+  m_named <- hmm_map_joint(j$dat, phased = j$oph, dam = "all", epsilon = 0.01,
+                           paternal_mode = "gametic", q_prior_list = named, tol = 1e-6, maxit = 200)
+  expect_length(m_named$fit$q_list, 3L)
+  m_pos <- hmm_map_joint(j$dat, phased = j$oph, dam = "all", epsilon = 0.01,
+                         paternal_mode = "gametic", q_prior_list = unname(named), tol = 1e-6, maxit = 200)
+  expect_equal(as.numeric(m_named$fit$r), as.numeric(m_pos$fit$r), tolerance = 1e-10)
+})
+
+test_that("q_prior_list: named per-dam list missing a requested dam errors", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  j <- mk_joint3()
+  bad <- stats::setNames(list(list(alpha = 3, beta = 3), list(alpha = 3, beta = 3)), j$dn[1:2])
+  expect_error(
+    hmm_map_joint(j$dat, phased = j$oph, dam = "all", paternal_mode = "gametic", q_prior_list = bad),
+    "missing prior")
+})
+
+test_that("q_prior_list: named per-dam list with an unknown dam errors", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  j <- mk_joint3()
+  # all requested dams ARE present, plus an extra unknown name -> unknown-dam error
+  bad <- stats::setNames(rep(list(list(alpha = 3, beta = 3)), 4), c(j$dn, "NOPE"))
+  expect_error(
+    hmm_map_joint(j$dat, phased = j$oph, dam = "all", paternal_mode = "gametic", q_prior_list = bad),
+    "unknown dam")
+})
+
+test_that("q_prior_list: unnamed list of the wrong length errors", {
+  RcppParallel::setThreadOptions(numThreads = 1)
+  j <- mk_joint3()
+  too_few <- list(list(alpha = 3, beta = 3), list(alpha = 3, beta = 3))
+  expect_error(
+    hmm_map_joint(j$dat, phased = j$oph, dam = "all", paternal_mode = "gametic", q_prior_list = too_few),
+    "one spec per requested dam")
+  too_many <- rep(list(list(alpha = 3, beta = 3)), 4)
+  expect_error(
+    hmm_map_joint(j$dat, phased = j$oph, dam = "all", paternal_mode = "gametic", q_prior_list = too_many),
+    "one spec per requested dam")
 })

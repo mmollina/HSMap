@@ -63,10 +63,13 @@ statistically validated recommendation. See \code{\link{hmm_map}}'s
 \item{q_prior_list}{Optional gametic pseudocount prior on \eqn{q_k}, shared
 across dams or per dam. Either a single spec applied to all dams (a numeric
 mean vector, or \code{list(alpha=, beta=)} pseudocounts; see
-\code{\link{hmm_map}}'s \code{q_prior_in}) or a named/positional list of such
-specs, one per dam. Per-dam prior means are supported; the total pseudocount
-\eqn{\alpha+\beta} must be common across dams. Takes precedence over
-\code{pi_prior_list}.}
+\code{\link{hmm_map}}'s \code{q_prior_in}) or a per-dam list of such specs.
+A per-dam list must supply \strong{exactly one spec per requested dam}: a
+named list must name every requested dam and no others (missing or unknown
+names are an error); an unnamed list must have one entry per requested dam,
+in the requested-dam order. Per-dam prior means are supported; the total
+pseudocount \eqn{\alpha+\beta} must be common across dams. Takes precedence
+over \code{pi_prior_list}.}
 
 \item{pi_prior_list, Pi_prior_list}{Optional named lists of per-dam priors
 (\code{3 x T} for Model A, \code{10 x (T-1)} for \code{two_locus}).}
