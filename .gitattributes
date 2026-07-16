@@ -1,0 +1,11 @@
+# Normalize line endings: store text files with LF in the repository and check
+# them out with LF, on every platform. Applied going forward; existing files are
+# not mass-renormalized in this commit.
+* text=auto eol=lf
+
+# Binary types git must never touch as text.
+*.pdf binary
+*.png binary
+*.jpg binary
+*.gz binary
+*.rds binary
