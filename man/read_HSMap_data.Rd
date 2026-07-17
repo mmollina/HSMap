@@ -22,7 +22,41 @@ An object of class HSMap.data with:
 \item pedigree: the pedigree data frame.
 \item stats: per-family summary statistics.
 }
+
+Cross-aware fields (added in the known-sire extension; safe to ignore for
+open-pollinated workflows):
+\itemize{
+\item cross_table: one row per cross with \code{cross_id}, \code{mother_id},
+\code{father_id}, \code{family_type} (\code{"open_pollinated"},
+\code{"known_sire_genotyped"}, or \code{"known_sire_untyped"}),
+\code{n_offspring}, and genotyped flags.
+\item crosses: named list keyed by \code{cross_id}, each holding the cross's
+\code{mother_id}, \code{father_id}, \code{family_type}, \code{offspring} IDs,
+maternal genotype \code{M}, paternal genotype \code{F} (\code{NA} when the sire
+is unknown or untyped), and offspring genotype matrix \code{G}.
+\item parent_genotypes: named list keyed by parent ID storing each parent's genotype
+vector once (\code{NA} for a named-but-untyped sire); shared references so the
+same mother/sire across crosses carries one genotype.
+\item F_list: paternal genotype vector per \code{cross_id} (\code{NA} vector when the
+sire is unknown/untyped).
+}
+
+The unknown sire is represented by the token \code{"__unknown_sire__"} in
+\code{father_id}; an open-pollinated cross keeps \code{cross_id == mother_id} so
+legacy \code{G_list}/\code{M_list} names are unchanged.
 }
 \description{
 Read HSMap pedigree and genotype CSVs
 }
+\section{Migration}{
+
+Existing open-pollinated CSVs (mother + offspring, empty/NA \code{father}) read
+exactly as before: \code{G_list}/\code{M_list} keep their family_id names and
+values, so any code using them is unaffected. An old \code{HSMap.data} object
+created before this extension simply lacks the cross-aware fields; the full-sib
+API requires those fields, so re-read such data with the current
+\code{read_HSMap_data()} to populate them. Known father IDs in the pedigree are
+never dropped: they are recorded in \code{cross_table$father_id} and drive
+\code{family_type}.
+}
+
