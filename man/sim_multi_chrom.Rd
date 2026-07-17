@@ -22,7 +22,7 @@ sim_multi_chrom(
   pedigree = NULL,
   seed = NULL,
   keep_paths = FALSE,
-  miss_rate = miss_rate
+  miss_rate = 0
 )
 }
 \arguments{

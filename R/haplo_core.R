@@ -1,7 +1,7 @@
 #' Per-child haplotype posteriors (gamma) from an HSMap map
 #'
 #' This wrapper builds inputs for \code{gamma_cpp()} from an \code{HSMap.data}
-#' object and a map returned by \code{hsmap_hmm_map()}. It supports both single-
+#' object and a map returned by \code{hmm_map()}. It supports both single-
 #' dam maps and multi-dam maps (class \code{"HSMap.map.multi"} with a
 #' \code{$per_dam} list).
 #'

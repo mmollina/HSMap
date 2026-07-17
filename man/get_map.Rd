@@ -12,6 +12,9 @@ recombination fractions between consecutive markers) and \code{map$order}
 (character vector with marker names in map order).}
 
 \item{map.function}{Character. One of \code{"haldane"}, \code{"kosambi"}, or \code{"morgan"}.}
+
+\item{gap_r}{Recombination fraction at/above which an interval is treated as a
+no-linkage gap (distance \code{NA}, excluded from the map length). Default \code{0.499}.}
 }
 \value{
 A named numeric vector of cumulative positions in cM

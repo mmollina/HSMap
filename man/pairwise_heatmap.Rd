@@ -17,7 +17,7 @@ pairwise_heatmap(
 )
 }
 \arguments{
-\item{tpt}{An \code{HSMap.tpt} object (as returned by \code{hsmap_twopoint()},
+\item{tpt}{An \code{HSMap.tpt} object (as returned by \code{pairwise_rf()},
 containing two-point results under \code{tpt$fit}), or a plain list with
 square matrices \code{r} and \code{lod_r} that share identical dimnames.}
 
@@ -70,7 +70,7 @@ interpretability.
 pairwise_heatmap(tpt, type = "rf")
 
 # LOD heatmap with a custom order and aggregation for speed
-ord <- hsmap_mds_order(grp, tpt, lg = 1, plot_each = FALSE)[["LG1"]]
+ord <- mds_order(grp, tpt, lg = 1, plot_each = FALSE)[["LG1"]]
 pairwise_heatmap(tpt, type = "lod", ord = ord, fact = 4)
 }
 }

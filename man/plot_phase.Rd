@@ -14,7 +14,7 @@ plot_phase(
 }
 \arguments{
 \item{phased}{An \code{HSMap.phased} or \code{HSMap.phased.multi} object
-returned by \code{hsmap_phase_from_pairwise()}.}
+returned by \code{phase_from_pairwise()}.}
 
 \item{tpt}{An \code{HSMap.tpt} with \code{fit$lod_ph} to compute per-interval
 LOD weights (optional but recommended).}
