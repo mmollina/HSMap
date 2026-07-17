@@ -7,6 +7,11 @@ fs_loglik_cpp <- function(G, Am, Ap, rm, rp, epsilon) {
     .Call(`_HSMap_fs_loglik_cpp`, G, Am, Ap, rm, rp, epsilon)
 }
 
+#' @keywords internal
+op_estep_cpp <- function(G, Am, rm, q, epsilon) {
+    .Call(`_HSMap_op_estep_cpp`, G, Am, rm, q, epsilon)
+}
+
 #' Full-sib E-step: observed log-likelihood and expected maternal/paternal switch
 #' and total counts per interval.
 #' @keywords internal

@@ -26,6 +26,21 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// op_estep_cpp
+List op_estep_cpp(IntegerMatrix G, IntegerMatrix Am, NumericVector rm, NumericVector q, double epsilon);
+RcppExport SEXP _HSMap_op_estep_cpp(SEXP GSEXP, SEXP AmSEXP, SEXP rmSEXP, SEXP qSEXP, SEXP epsilonSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerMatrix >::type G(GSEXP);
+    Rcpp::traits::input_parameter< IntegerMatrix >::type Am(AmSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type rm(rmSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type q(qSEXP);
+    Rcpp::traits::input_parameter< double >::type epsilon(epsilonSEXP);
+    rcpp_result_gen = Rcpp::wrap(op_estep_cpp(G, Am, rm, q, epsilon));
+    return rcpp_result_gen;
+END_RCPP
+}
 // fs_estep_cpp
 List fs_estep_cpp(IntegerMatrix G, IntegerMatrix Am, IntegerMatrix Ap, NumericVector rm, NumericVector rp, double epsilon, bool return_gamma);
 RcppExport SEXP _HSMap_fs_estep_cpp(SEXP GSEXP, SEXP AmSEXP, SEXP ApSEXP, SEXP rmSEXP, SEXP rpSEXP, SEXP epsilonSEXP, SEXP return_gammaSEXP) {
@@ -160,6 +175,7 @@ END_RCPP
 
 static const R_CallMethodDef CallEntries[] = {
     {"_HSMap_fs_loglik_cpp", (DL_FUNC) &_HSMap_fs_loglik_cpp, 6},
+    {"_HSMap_op_estep_cpp", (DL_FUNC) &_HSMap_op_estep_cpp, 5},
     {"_HSMap_fs_estep_cpp", (DL_FUNC) &_HSMap_fs_estep_cpp, 7},
     {"_HSMap_hmm_hs_cpp_parallel", (DL_FUNC) &_HSMap_hmm_hs_cpp_parallel, 13},
     {"_HSMap_gamma_cpp", (DL_FUNC) &_HSMap_gamma_cpp, 6},

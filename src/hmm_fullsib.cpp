@@ -134,6 +134,87 @@ double fs_loglik_cpp(IntegerMatrix G, IntegerMatrix Am, IntegerMatrix Ap,
   return ll;
 }
 
+// ---------------------------------------------------------------------------
+// Open-pollinated maternal E-step in the SAME homolog-state form (2 states), with
+// the paternal allele marginalized independently per marker at frequency q_k. This
+// makes OP maternal recombination counts pool directly with the full-sib ones. The
+// emission b_k(h) = sum_{ap in 0,1} P(ap) * emit(y, Am[h,k]+ap, eps), P(ap=1)=q_k.
+// Returns loglik, maternal switch/total per interval, and expected paternal A/a gamete
+// counts per marker (for the q MAP update).
+// ---------------------------------------------------------------------------
+//' @keywords internal
+// [[Rcpp::export]]
+List op_estep_cpp(IntegerMatrix G, IntegerMatrix Am, NumericVector rm,
+                  NumericVector q, double epsilon) {
+  int n = G.nrow(), T = G.ncol();
+  std::vector<double> m_sw(T - 1, 0.0), tot(T - 1, 0.0), NA(T, 0.0), Na(T, 0.0);
+  double ll = 0.0;
+  std::vector<double> alpha(2 * T), beta(2 * T), E(2 * T), c(T);
+  std::vector<double> eA(2 * T), ea(2 * T); // per-state paternal-A / paternal-a partial emissions
+  for (int i = 0; i < n; ++i) {
+    IntegerVector y = G(i, _);
+    for (int k = 0; k < T; ++k) {
+      double qk = q[k];
+      for (int h = 0; h < 2; ++h) {
+        int am = Am(h, k);
+        double pA = fs_emit(y[k], am + 1, epsilon);   // paternal allele A (=1)
+        double pa = fs_emit(y[k], am + 0, epsilon);   // paternal allele a (=0)
+        eA[2 * k + h] = qk * pA;
+        ea[2 * k + h] = (1.0 - qk) * pa;
+        E[2 * k + h] = eA[2 * k + h] + ea[2 * k + h];
+      }
+    }
+    double c0 = 0.0;
+    for (int h = 0; h < 2; ++h) { alpha[h] = 0.5 * E[h]; c0 += alpha[h]; }
+    if (c0 <= 0) c0 = 1e-300; for (int h = 0; h < 2; ++h) alpha[h] /= c0; c[0] = c0;
+    ll += std::log(c0);
+    for (int k = 1; k < T; ++k) {
+      double r = rm[k - 1], ck = 0.0;
+      for (int hp = 0; hp < 2; ++hp) {
+        double acc = 0.0;
+        for (int h = 0; h < 2; ++h) acc += alpha[2 * (k - 1) + h] * ((h == hp) ? (1.0 - r) : r);
+        alpha[2 * k + hp] = acc * E[2 * k + hp]; ck += alpha[2 * k + hp];
+      }
+      if (ck <= 0) ck = 1e-300; for (int hp = 0; hp < 2; ++hp) alpha[2 * k + hp] /= ck; c[k] = ck;
+      ll += std::log(ck);
+    }
+    for (int h = 0; h < 2; ++h) beta[2 * (T - 1) + h] = 1.0;
+    for (int k = T - 2; k >= 0; --k) {
+      double r = rm[k];
+      for (int h = 0; h < 2; ++h) {
+        double acc = 0.0;
+        for (int hp = 0; hp < 2; ++hp) acc += ((h == hp) ? (1.0 - r) : r) * E[2 * (k + 1) + hp] * beta[2 * (k + 1) + hp];
+        beta[2 * k + h] = acc / c[k + 1];
+      }
+    }
+    // xi -> maternal switch/total
+    for (int k = 0; k < T - 1; ++k) {
+      double r = rm[k];
+      for (int h = 0; h < 2; ++h) for (int hp = 0; hp < 2; ++hp) {
+        double xi = alpha[2 * k + h] * ((h == hp) ? (1.0 - r) : r) * E[2 * (k + 1) + hp] * beta[2 * (k + 1) + hp] / c[k + 1];
+        tot[k] += xi; if (h != hp) m_sw[k] += xi;
+      }
+    }
+    // paternal gamete responsibilities at observed loci
+    for (int k = 0; k < T; ++k) {
+      if (y[k] == NA_INTEGER) continue;
+      double z = 0.0, g[2];
+      for (int h = 0; h < 2; ++h) { g[h] = alpha[2 * k + h] * beta[2 * k + h]; z += g[h]; }
+      if (z <= 0) z = 1e-300;
+      for (int h = 0; h < 2; ++h) {
+        double gh = g[h] / z, bk = E[2 * k + h] > 0 ? E[2 * k + h] : 1e-300;
+        NA[k] += gh * eA[2 * k + h] / bk;
+        Na[k] += gh * ea[2 * k + h] / bk;
+      }
+    }
+  }
+  NumericVector m_switch(T - 1), total(T - 1), NAo(T), Nao(T);
+  for (int k = 0; k < T - 1; ++k) { m_switch[k] = m_sw[k]; total[k] = tot[k]; }
+  for (int k = 0; k < T; ++k) { NAo[k] = NA[k]; Nao[k] = Na[k]; }
+  return List::create(_["loglik"] = ll, _["m_switch"] = m_switch, _["total"] = total,
+                      _["N_A"] = NAo, _["N_a"] = Nao);
+}
+
 //' Full-sib E-step: observed log-likelihood and expected maternal/paternal switch
 //' and total counts per interval.
 //' @keywords internal
