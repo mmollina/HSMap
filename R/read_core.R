@@ -40,6 +40,16 @@
 #'   \code{read_HSMap_data()} to populate them. Known father IDs in the pedigree are
 #'   never dropped: they are recorded in \code{cross_table$father_id} and drive
 #'   \code{family_type}.
+#'
+#' @section Parent rows:
+#'   A parent (mother or sire) is \strong{not required} to appear as its own row in the
+#'   pedigree. A parent's genotype is taken from the genotype file by its ID: if the ID
+#'   is a sample column the parent is genotyped (a sire then yields
+#'   \code{known_sire_genotyped}); if it is not, the parent is untyped (a named sire
+#'   yields \code{known_sire_untyped}). Whether the parent also has a generation-1
+#'   pedigree row does not change this. Offspring are the generation-2 pedigree rows;
+#'   an offspring appearing more than once with the \emph{same} parents is de-duplicated,
+#'   while an offspring appearing with \emph{conflicting} parents is an error.
 #' @importFrom stats na.omit setNames
 #' @export
 read_HSMap_data <- function(pedigree, genotypes, na_strings = c("NA",".","")) {
@@ -189,7 +199,7 @@ HSMAP_UNKNOWN_SIRE <- "__unknown_sire__"
     sel <- ckey == cid
     mom_id <- unique(off_mo[sel]); mom_id <- mom_id[1]
     fat_id <- unique(off_fa[sel]); fat_id <- fat_id[1]
-    kids   <- off_ped$id[sel]
+    kids   <- unique(off_ped$id[sel])   # dedup identical duplicate offspring records
 
     Mvec <- rep(NA_integer_, length(markers)); names(Mvec) <- markers
     if (mom_id %in% samp) Mvec <- as.integer(X[, mom_id])

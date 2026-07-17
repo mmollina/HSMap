@@ -60,3 +60,15 @@ never dropped: they are recorded in \code{cross_table$father_id} and drive
 \code{family_type}.
 }
 
+\section{Parent rows}{
+
+A parent (mother or sire) is \strong{not required} to appear as its own row in the
+pedigree. A parent's genotype is taken from the genotype file by its ID: if the ID
+is a sample column the parent is genotyped (a sire then yields
+\code{known_sire_genotyped}); if it is not, the parent is untyped (a named sire
+yields \code{known_sire_untyped}). Whether the parent also has a generation-1
+pedigree row does not change this. Offspring are the generation-2 pedigree rows;
+an offspring appearing more than once with the \emph{same} parents is de-duplicated,
+while an offspring appearing with \emph{conflicting} parents is an error.
+}
+
