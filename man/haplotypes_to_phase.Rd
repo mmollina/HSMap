@@ -18,3 +18,10 @@ interval whose two markers are not both heterozygous (phase undefined there).
 Recover an adjacent phase vector from phased haplotypes (inverse of
 \code{phase_to_haplotypes} at heterozygous markers)
 }
+\details{
+This is \strong{not} a complete inverse of \code{phase_to_haplotypes()}. When
+heterozygous markers are separated by homozygous markers, the adjacent phase across
+the homozygous stretch is not identifiable from the haplotypes, so the corresponding
+entries are \code{NA}. Consequently the canonical oracle representation for full-sib
+fitting is the \code{2 x T} haplotype matrix itself, not an adjacent phase vector.
+}

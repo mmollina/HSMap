@@ -70,10 +70,15 @@ standard, mathematically equivalent HMM form):
   labels*.
 
 Phase is thus applied exactly once (in the emission), never twice. A parent's oracle
-phase is represented as a `2 × z` **allele matrix** `H` (`H[j,k] ∈ {0,1}` = allele on
-homolog `j` at marker `k`), obtained from the parent genotype `g` and an adjacent phase
-vector `ψ` (`1` = coupling, `0` = repulsion) by the package's standard anchored
-construction:
+phase is represented **canonically** as a `2 × z` **allele matrix** `H`
+(`H[j,k] ∈ {0,1}` = allele on homolog `j` at marker `k`) — the public inputs
+`haplotypes_m` / `haplotypes_p`. This matrix is the fundamental input because it stays
+unambiguous when heterozygous markers are separated by homozygous markers, where the
+adjacent phase vector is **not** identifiable. An adjacent phase vector `ψ`
+(`1` = coupling, `0` = repulsion) is accepted only as a legacy compatibility input and
+only when **fully resolved**: any `NA` (unresolved) entry is rejected, never treated as
+coupling. When supplied, `H` follows from the parent genotype `g` and `ψ` by the
+package's standard anchored construction:
 
 ```
 orient[1] = 0;  orient[k] = orient[k-1] XOR (ψ[k-1] == repulsion)

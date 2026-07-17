@@ -16,37 +16,58 @@
 }
 
 # Build a cross's maternal/paternal 2xT allele matrices from parent genotypes and
-# oracle phase vectors, aligned to `order`. Errors on a missing required parent
-# genotype at a fitted marker (on_missing = "error").
-.fs_build_cross <- function(cr, parent_geno, phased_m, phased_p, order, on_missing) {
-  mom <- cr$mother_id; fat <- cr$father_id
-  gm <- parent_geno[[mom]]; gf <- parent_geno[[fat]]
-  if (is.null(gm) || all(is.na(gm)))
-    stop("hmm_map_fullsib(): mother '", mom, "' has no genotype (cross '", cr$cross_id, "').", call. = FALSE)
-  if (is.null(gf) || all(is.na(gf)))
-    stop("hmm_map_fullsib(): sire '", fat, "' has no genotype (cross '", cr$cross_id,
-         "'); full-sib fitting requires a genotyped sire.", call. = FALSE)
-  names(gm) <- names(gm) %||% colnames(cr$G); names(gf) <- names(gf) %||% colnames(cr$G)
-  gm <- gm[order]; gf <- gf[order]
-  pvm <- phased_m[[mom]]; pvf <- phased_p[[fat]]
-  if (is.null(pvm)) stop("hmm_map_fullsib(): no maternal phase supplied for mother '", mom, "'.", call. = FALSE)
-  if (is.null(pvf)) stop("hmm_map_fullsib(): no paternal phase supplied for sire '", fat, "'.", call. = FALSE)
-  if (length(pvm) != length(order) - 1L || length(pvf) != length(order) - 1L)
-    stop("hmm_map_fullsib(): phase vectors for cross '", cr$cross_id,
-         "' must have length length(order) - 1.", call. = FALSE)
-  Am <- phase_to_haplotypes(gm, pvm)
-  Ap <- phase_to_haplotypes(gf, pvf)
-  miss_m <- which(apply(Am, 2, anyNA)); miss_p <- which(apply(Ap, 2, anyNA))
-  if (length(miss_m) || length(miss_p)) {
-    if (identical(on_missing, "error"))
-      stop("hmm_map_fullsib(): missing required parent genotype in cross '", cr$cross_id,
-           "' at ", length(unique(c(miss_m, miss_p))), " marker(s) (e.g. ",
-           paste(order[utils::head(unique(c(miss_m, miss_p)), 5)], collapse = ", "),
-           "). The core does not invent a parental allele; supply complete parent ",
-           "genotypes or drop these markers first.", call. = FALSE)
+# Resolve a parent's oracle 2 x length(order) allele matrix (entries 0/1) from EITHER
+# an explicit haplotype matrix (the canonical input) OR a fully-resolved legacy phase
+# vector. Unresolved (NA) phase or NA haplotype entries are rejected -- never coerced to
+# coupling. The same parent id always resolves to the same matrix (shared object).
+.resolve_parent_alleles <- function(id, role, haplotypes, phased, parent_geno, order, fn) {
+  z <- length(order)
+  H <- if (!is.null(haplotypes)) haplotypes[[id]] else NULL
+  if (!is.null(H)) {                                   # canonical: explicit haplotype matrix
+    H <- as.matrix(H)
+    if (nrow(H) != 2L)
+      stop(fn, "(): haplotypes for ", role, " '", id, "' must be a 2 x T matrix.", call. = FALSE)
+    if (!is.null(colnames(H))) {
+      if (!all(order %in% colnames(H)))
+        stop(fn, "(): haplotypes for ", role, " '", id, "' are missing markers in `order`.", call. = FALSE)
+      H <- H[, order, drop = FALSE]
+    } else if (ncol(H) != z) {
+      stop(fn, "(): haplotypes for ", role, " '", id, "' have ", ncol(H),
+           " columns but `order` has ", z, " and the matrix has no column names.", call. = FALSE)
+    }
+    if (anyNA(H))
+      stop(fn, "(): haplotypes for ", role, " '", id, "' contain NA (unresolved) at fitted ",
+           "marker(s); the core requires fully resolved oracle haplotypes.", call. = FALSE)
+    if (!all(H %in% c(0L, 1L)))
+      stop(fn, "(): haplotype entries for ", role, " '", id, "' must be 0/1.", call. = FALSE)
+    return(matrix(as.integer(H), 2))
   }
+  pv <- if (!is.null(phased)) phased[[id]] else NULL   # legacy: adjacent phase vector
+  if (is.null(pv))
+    stop(fn, "(): no oracle phase for ", role, " '", id, "'. Supply haplotypes or a phase vector.", call. = FALSE)
+  if (length(pv) != z - 1L)
+    stop(fn, "(): phase vector for ", role, " '", id, "' must have length length(order) - 1.", call. = FALSE)
+  if (anyNA(pv))
+    stop(fn, "(): unresolved (NA) phase supplied for ", role, " '", id, "' via the legacy ",
+         "phase-vector interface; NA phase is never treated as coupling. Provide an explicit ",
+         "haplotype matrix (haplotypes_", substr(role, 1, 1), ") instead.", call. = FALSE)
+  g <- parent_geno[[id]]
+  if (is.null(g) || all(is.na(g)))
+    stop(fn, "(): ", role, " '", id, "' has no genotype.", call. = FALSE)
+  names(g) <- names(g) %||% order; g <- g[order]
+  H <- phase_to_haplotypes(g, pv)
+  if (anyNA(H))
+    stop(fn, "(): missing required ", role, " genotype at fitted marker(s) for '", id,
+         "'. The core does not invent a parental allele.", call. = FALSE)
+  matrix(as.integer(H), 2)
+}
+
+# Build a cross's maternal + paternal allele matrices (from haplotypes or phase).
+.fs_build_cross <- function(cr, parent_geno, haplotypes_m, haplotypes_p, phased_m, phased_p, order, on_missing) {
+  Am <- .resolve_parent_alleles(cr$mother_id, "mother", haplotypes_m, phased_m, parent_geno, order, "hmm_map_fullsib")
+  Ap <- .resolve_parent_alleles(cr$father_id, "sire",   haplotypes_p, phased_p, parent_geno, order, "hmm_map_fullsib")
   G <- cr$G[, order, drop = FALSE]; storage.mode(G) <- "integer"
-  list(G = G, Am = matrix(as.integer(Am), 2), Ap = matrix(as.integer(Ap), 2))
+  list(G = G, Am = Am, Ap = Ap)
 }
 
 #' Fit a known-sire full-sib recombination map (oracle phase)
@@ -61,9 +82,18 @@
 #'
 #' @param x An \code{HSMap.data} object with cross-aware fields (\code{crosses},
 #'   \code{parent_genotypes}).
-#' @param phased_m Named list mapping each mother id to an oracle maternal phase vector
-#'   (length \code{z-1}, 1 = coupling, 0 = repulsion), aligned to \code{order}.
-#' @param phased_p Named list mapping each sire id to an oracle paternal phase vector.
+#' @param haplotypes_m,haplotypes_p \strong{Canonical oracle input.} Named lists
+#'   mapping each mother / sire id to a fully resolved \code{2 x T} haplotype allele
+#'   matrix (entries 0/1, rows = homolog 1/2), with column names giving the markers
+#'   (or exactly \code{length(order)} columns in \code{order}). This is preferred over
+#'   \code{phased_*} because it is unambiguous when heterozygous markers are separated
+#'   by homozygous markers. \code{NA} (unresolved) entries are rejected. The same
+#'   parent id resolves to the same matrix across crosses.
+#' @param phased_m,phased_p \emph{Legacy compatibility only.} Named lists mapping each
+#'   mother / sire id to a fully resolved adjacent phase vector (length \code{z-1},
+#'   1 = coupling, 0 = repulsion). \strong{Any \code{NA} (unresolved) phase is rejected}
+#'   -- unresolved phase is never treated as coupling. Used only when the corresponding
+#'   \code{haplotypes_*} entry is absent. Prefer \code{haplotypes_*}.
 #' @param crosses Optional character vector of \code{cross_id}s to fit; default all
 #'   \code{known_sire_genotyped} crosses.
 #' @param order Optional marker order (character); default the common column order of
@@ -82,7 +112,9 @@
 #'
 #' @return An object of class \code{HSMap.fullsib} (see \code{$fit}).
 #' @export
-hmm_map_fullsib <- function(x, phased_m, phased_p, crosses = NULL, order = NULL,
+hmm_map_fullsib <- function(x, phased_m = NULL, phased_p = NULL,
+                            haplotypes_m = NULL, haplotypes_p = NULL,
+                            crosses = NULL, order = NULL,
                             epsilon = 0.05, tol = 1e-6, maxit = 1000L, r_start = 0.1,
                             gap_r = 0.499, on_missing = c("error"), return_posterior = FALSE) {
   if (!inherits(x, "HSMap.data")) stop("`x` must be an HSMap.data object.")
@@ -105,7 +137,7 @@ hmm_map_fullsib <- function(x, phased_m, phased_p, crosses = NULL, order = NULL,
 
   # precompute per-cross aligned data + allele matrices (phase fixed)
   built <- lapply(fs_ids, function(cid)
-    .fs_build_cross(all_cross[[cid]], x$parent_genotypes, phased_m, phased_p, order, on_missing))
+    .fs_build_cross(all_cross[[cid]], x$parent_genotypes, haplotypes_m, haplotypes_p, phased_m, phased_p, order, on_missing))
   names(built) <- fs_ids
   moms <- unique(vapply(fs_ids, function(cid) all_cross[[cid]]$mother_id, character(1)))
   sires <- unique(vapply(fs_ids, function(cid) all_cross[[cid]]$father_id, character(1)))
@@ -185,21 +217,10 @@ hmm_map_fullsib <- function(x, phased_m, phased_p, crosses = NULL, order = NULL,
 }
 
 # Build maternal 2xT allele matrix for an OP cross (phase in emission).
-.op_build_cross <- function(cr, parent_geno, phased_m, order, on_missing) {
-  mom <- cr$mother_id
-  gm <- parent_geno[[mom]]
-  if (is.null(gm) || all(is.na(gm)))
-    stop("hmm_map_mixed(): mother '", mom, "' has no genotype (cross '", cr$cross_id, "').", call. = FALSE)
-  names(gm) <- names(gm) %||% colnames(cr$G); gm <- gm[order]
-  pvm <- phased_m[[mom]]
-  if (is.null(pvm)) stop("hmm_map_mixed(): no maternal phase supplied for mother '", mom, "'.", call. = FALSE)
-  if (length(pvm) != length(order) - 1L)
-    stop("hmm_map_mixed(): maternal phase for '", mom, "' must have length length(order)-1.", call. = FALSE)
-  Am <- phase_to_haplotypes(gm, pvm)
-  if (any(apply(Am, 2, anyNA)) && identical(on_missing, "error"))
-    stop("hmm_map_mixed(): missing maternal genotype in cross '", cr$cross_id, "'.", call. = FALSE)
+.op_build_cross <- function(cr, parent_geno, haplotypes_m, phased_m, order, on_missing) {
+  Am <- .resolve_parent_alleles(cr$mother_id, "mother", haplotypes_m, phased_m, parent_geno, order, "hmm_map_mixed")
   G <- cr$G[, order, drop = FALSE]; storage.mode(G) <- "integer"
-  list(G = G, Am = matrix(as.integer(Am), 2), mother = mom)
+  list(G = G, Am = Am, mother = cr$mother_id)
 }
 
 #' Fit a mixed open-pollinated + known-sire recombination map
@@ -213,9 +234,14 @@ hmm_map_fullsib <- function(x, phased_m, phased_p, crosses = NULL, order = NULL,
 #' OP-only results are unchanged. See \code{dev/known_sire_design.md}.
 #'
 #' @param x An \code{HSMap.data} object with cross-aware fields.
-#' @param phased_m Named list: mother id -> maternal phase vector (length z-1).
-#' @param phased_p Named list: sire id -> paternal phase vector (required if any
-#'   full-sib cross is fitted).
+#' @param haplotypes_m,haplotypes_p Canonical oracle input: named lists of fully
+#'   resolved \code{2 x T} parental haplotype allele matrices (see
+#'   \code{\link{hmm_map_fullsib}}). \code{haplotypes_p} (or \code{phased_p}) is
+#'   required when any full-sib cross is fitted.
+#' @param phased_m,phased_p Legacy compatibility: fully resolved adjacent phase vectors
+#'   (mother/sire id -> length z-1). \code{NA} phase is rejected. For the open-pollinated
+#'   dispatch a resolved \code{phased_m} is used directly; explicit haplotypes are
+#'   converted where possible.
 #' @param order Optional marker order; default the common genotype column order.
 #' @param epsilon,tol,maxit,r_start As in \code{hmm_map_fullsib}.
 #' @param lambda,q0 OP paternal-\code{q} pseudocount total and shrinkage target
@@ -229,7 +255,8 @@ hmm_map_fullsib <- function(x, phased_m, phased_p, crosses = NULL, order = NULL,
 #'
 #' @return An object of class \code{HSMap.mixed}.
 #' @export
-hmm_map_mixed <- function(x, phased_m, phased_p = NULL, order = NULL,
+hmm_map_mixed <- function(x, phased_m = NULL, phased_p = NULL,
+                          haplotypes_m = NULL, haplotypes_p = NULL, order = NULL,
                           epsilon = 0.05, lambda = 20, q0 = 0.5, tol = 1e-6,
                           maxit = 1000L, r_start = 0.1, gap_r = 0.499,
                           untyped_sire = c("error", "open_pollinated"),
@@ -258,9 +285,23 @@ hmm_map_mixed <- function(x, phased_m, phased_p = NULL, order = NULL,
 
   # ---- OP-only: dispatch to the existing engine (unchanged results) ---------
   if (!length(fs_ids)) {
+    # the legacy allele-state engine consumes an adjacent phase vector; derive one from
+    # explicit haplotypes if needed and reject an unresolved (NA) result.
+    op_phase <- function(mom) {
+      pv <- if (!is.null(phased_m)) phased_m[[mom]] else NULL
+      if (is.null(pv) && !is.null(haplotypes_m) && !is.null(haplotypes_m[[mom]]))
+        pv <- haplotypes_to_phase(as.matrix(haplotypes_m[[mom]]))
+      if (is.null(pv)) stop("hmm_map_mixed(): no maternal phase for OP mother '", mom, "'.", call. = FALSE)
+      if (anyNA(pv))
+        stop("hmm_map_mixed(): unresolved (NA) phase for OP mother '", mom, "'; the legacy ",
+             "open-pollinated dispatch needs a fully resolved phase vector (homozygous markers ",
+             "between heterozygous ones can leave phase undefined). Supply a resolved phase_m.",
+             call. = FALSE)
+      as.integer(pv)
+    }
     phased_list <- lapply(op_ids, function(cid)
       structure(list(dam = cx[[cid]]$mother_id, order = order,
-                     phase_vec = as.integer(phased_m[[cx[[cid]]$mother_id]])),
+                     phase_vec = op_phase(cx[[cid]]$mother_id)),
                 class = "HSMap.phased"))
     names(phased_list) <- vapply(op_ids, function(cid) cx[[cid]]$mother_id, character(1))
     if (length(phased_list) == 1L) {
@@ -292,13 +333,14 @@ hmm_map_mixed <- function(x, phased_m, phased_p = NULL, order = NULL,
   }
 
   # ---- mixed EM (OP + full-sib) ---------------------------------------------
-  if (length(fs_ids) && is.null(phased_p))
-    stop("hmm_map_mixed(): full-sib crosses present but `phased_p` (sire phase) is NULL.")
+  if (length(fs_ids) && is.null(phased_p) && is.null(haplotypes_p))
+    stop("hmm_map_mixed(): full-sib crosses present but no sire phase supplied ",
+         "(provide haplotypes_p or phased_p).", call. = FALSE)
   fs_built <- lapply(fs_ids, function(cid)
-    .fs_build_cross(cx[[cid]], x$parent_genotypes, phased_m, phased_p, order, on_missing))
+    .fs_build_cross(cx[[cid]], x$parent_genotypes, haplotypes_m, haplotypes_p, phased_m, phased_p, order, on_missing))
   names(fs_built) <- fs_ids
   op_built <- lapply(op_ids, function(cid)
-    .op_build_cross(cx[[cid]], x$parent_genotypes, phased_m, order, on_missing))
+    .op_build_cross(cx[[cid]], x$parent_genotypes, haplotypes_m, phased_m, order, on_missing))
   names(op_built) <- op_ids
 
   # OP crosses grouped by dam (one q per dam)

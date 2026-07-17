@@ -6,8 +6,10 @@
 \usage{
 hmm_map_mixed(
   x,
-  phased_m,
+  phased_m = NULL,
   phased_p = NULL,
+  haplotypes_m = NULL,
+  haplotypes_p = NULL,
   order = NULL,
   epsilon = 0.05,
   lambda = 20,
@@ -24,10 +26,15 @@ hmm_map_mixed(
 \arguments{
 \item{x}{An \code{HSMap.data} object with cross-aware fields.}
 
-\item{phased_m}{Named list: mother id -> maternal phase vector (length z-1).}
+\item{phased_m, phased_p}{Legacy compatibility: fully resolved adjacent phase vectors
+(mother/sire id -> length z-1). \code{NA} phase is rejected. For the open-pollinated
+dispatch a resolved \code{phased_m} is used directly; explicit haplotypes are
+converted where possible.}
 
-\item{phased_p}{Named list: sire id -> paternal phase vector (required if any
-full-sib cross is fitted).}
+\item{haplotypes_m, haplotypes_p}{Canonical oracle input: named lists of fully
+resolved \code{2 x T} parental haplotype allele matrices (see
+\code{\link{hmm_map_fullsib}}). \code{haplotypes_p} (or \code{phased_p}) is
+required when any full-sib cross is fitted.}
 
 \item{order}{Optional marker order; default the common genotype column order.}
 

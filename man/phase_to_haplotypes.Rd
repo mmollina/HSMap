@@ -11,8 +11,9 @@ phase_to_haplotypes(genotype, phase_vec)
 (\code{NA} allowed for a missing genotype at a marker).}
 
 \item{phase_vec}{Integer vector (length z-1) of adjacent phases, 1 = coupling,
-0 = repulsion. \code{NA} entries are treated as coupling for the orientation
-chain (they carry the labelling forward unchanged).}
+0 = repulsion. \strong{\code{NA} (unresolved) phase is rejected with an error} --
+an unresolved interval is never silently treated as coupling. Supply an explicit
+haplotype matrix (the canonical oracle input for full-sib fitting) instead.}
 }
 \value{
 An integer matrix \code{2 x z} with rows = homolog 1 and 2 and entries in

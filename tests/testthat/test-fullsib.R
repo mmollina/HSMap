@@ -189,7 +189,7 @@ test_that("15. missing required sire genotype triggers the documented error", {
   d <- sim$data
   d$parent_genotypes[["S1"]][3] <- NA_integer_             # puncture the sire genotype
   pm <- list(M1 = sim$truth$parents[["M1"]]$phase_vec); pp <- list(S1 = sim$truth$parents[["S1"]]$phase_vec)
-  expect_error(hmm_map_fullsib(d, phased_m=pm, phased_p=pp), "missing required parent genotype")
+  expect_error(hmm_map_fullsib(d, phased_m=pm, phased_p=pp), "missing required (parent|sire) genotype")
 })
 
 test_that("17. final returned likelihood is evaluated at the final parameters", {
@@ -263,4 +263,47 @@ test_that("C1. OP-only mixed distances agree with the existing OP map reporter",
   gm <- get_map(mx$op_result, "haldane", gap_r=0.499)
   expect_equal(as.numeric(mx$fit$d_m), as.numeric(attr(gm, "dist_cM")), tolerance=1e-12)
   expect_identical(unname(mx$fit$interval_status_m), unname(attr(gm, "status")))
+})
+
+
+# ---- Commit 2: explicit haplotype contract (no unsafe phase vectors) --------
+test_that("C2. explicit haplotypes preserve orientation across a hom-interrupted interval", {
+  # mother het, AA(hom), het with repulsion between the two het markers
+  Htrue <- matrix(c(1L,0L, 1L,1L, 0L,1L), 2)   # homolog1 = A,A,a ; homolog2 = a,A,A
+  pv <- haplotypes_to_phase(Htrue)
+  expect_true(anyNA(pv))                        # phase undefined around the hom marker
+  # phase_to_haplotypes is NOT a complete inverse: it rejects the NA phase, never couples it
+  expect_error(phase_to_haplotypes(c(1L,2L,1L), pv), "unresolved")
+  # the explicit matrix is unambiguous and keeps the correct (repulsion) orientation
+  expect_identical(Htrue[, 1], c(1L, 0L)); expect_identical(Htrue[, 3], c(0L, 1L))
+})
+
+test_that("C2. haplotype and legacy phase inputs agree when phase is fully resolved", {
+  sim <- sim_fullsib(n_markers=8, crosses=data.frame(mother="M1",father="S1",n=500),
+                     r_const_m=0.1, r_const_p=0.2, epsilon=0.02, seed=42)
+  ord <- colnames(sim$data$crosses[["M1__x__S1"]]$G)
+  pm <- list(M1=sim$truth$parents[["M1"]]$phase_vec); pp <- list(S1=sim$truth$parents[["S1"]]$phase_vec)
+  hm <- list(M1 = `colnames<-`(sim$truth$parents[["M1"]]$hap, ord))
+  hp <- list(S1 = `colnames<-`(sim$truth$parents[["S1"]]$hap, ord))
+  f_pv <- hmm_map_fullsib(sim$data, phased_m=pm, phased_p=pp, epsilon=0.02, tol=1e-7, maxit=1000)
+  f_hp <- hmm_map_fullsib(sim$data, haplotypes_m=hm, haplotypes_p=hp, epsilon=0.02, tol=1e-7, maxit=1000)
+  expect_equal(as.numeric(f_pv$fit$r_m), as.numeric(f_hp$fit$r_m), tolerance=1e-10)
+  expect_equal(as.numeric(f_pv$fit$r_p), as.numeric(f_hp$fit$r_p), tolerance=1e-10)
+})
+
+test_that("C2. unresolved (NA) phase is rejected by the legacy interface", {
+  sim <- sim_fullsib(n_markers=6, crosses=data.frame(mother="M1",father="S1",n=50), seed=15)
+  pm <- list(M1=sim$truth$parents[["M1"]]$phase_vec); pp <- list(S1=sim$truth$parents[["S1"]]$phase_vec)
+  pm$M1[2] <- NA_integer_
+  expect_error(hmm_map_fullsib(sim$data, phased_m=pm, phased_p=pp), "unresolved")
+})
+
+test_that("C2. the same parent resolves to the same haplotype matrix across crosses", {
+  ord <- sprintf("M%04d", 1:5)
+  H <- matrix(c(1L,0L,1L,0L,0L,1L,0L,1L,1L,0L), 2, 5); colnames(H) <- ord
+  a1 <- HSMap:::.resolve_parent_alleles("M1","mother", list(M1=H), NULL, NULL, ord, "test")
+  a2 <- HSMap:::.resolve_parent_alleles("M1","mother", list(M1=H), NULL, NULL, ord, "test")
+  expect_identical(a1, a2)
+  expect_error(HSMap:::.resolve_parent_alleles("M1","mother",
+    list(M1=`[<-`(H, 1, 1, NA_integer_)), NULL, NULL, ord, "test"), "unresolved")
 })

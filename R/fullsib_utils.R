@@ -14,8 +14,9 @@
 #' @param genotype Integer vector (length z) of parent genotypes coded 0/1/2 = aa/Aa/AA
 #'   (\code{NA} allowed for a missing genotype at a marker).
 #' @param phase_vec Integer vector (length z-1) of adjacent phases, 1 = coupling,
-#'   0 = repulsion. \code{NA} entries are treated as coupling for the orientation
-#'   chain (they carry the labelling forward unchanged).
+#'   0 = repulsion. \strong{\code{NA} (unresolved) phase is rejected with an error} --
+#'   an unresolved interval is never silently treated as coupling. Supply an explicit
+#'   haplotype matrix (the canonical oracle input for full-sib fitting) instead.
 #'
 #' @return An integer matrix \code{2 x z} with rows = homolog 1 and 2 and entries in
 #'   \code{{0,1}} (allele a / A); \code{NA} at markers with a missing genotype.
@@ -27,10 +28,14 @@ phase_to_haplotypes <- function(genotype, phase_vec) {
   if (length(phase_vec) != z - 1L)
     stop("`phase_vec` must have length length(genotype) - 1.")
   pv <- as.integer(phase_vec)
-  # orientation parity: flip at every repulsion interval (NA treated as coupling)
+  if (anyNA(pv))
+    stop("`phase_vec` contains NA (unresolved phase); NA is never treated as coupling. ",
+         "Supply an explicit 2 x z haplotype matrix instead (see haplotypes_m/haplotypes_p).",
+         call. = FALSE)
+  # orientation parity: flip at every repulsion interval
   orient <- integer(z)
   for (k in 2:z) {
-    flip <- if (z >= 2 && !is.na(pv[k - 1L]) && pv[k - 1L] == 0L) 1L else 0L
+    flip <- if (z >= 2 && pv[k - 1L] == 0L) 1L else 0L
     orient[k] <- bitwXor(orient[k - 1L], flip)
   }
   if (z == 1L) orient <- 0L
@@ -50,6 +55,13 @@ phase_to_haplotypes <- function(genotype, phase_vec) {
 
 #' Recover an adjacent phase vector from phased haplotypes (inverse of
 #' \code{phase_to_haplotypes} at heterozygous markers)
+#'
+#' @details
+#' This is \strong{not} a complete inverse of \code{phase_to_haplotypes()}. When
+#' heterozygous markers are separated by homozygous markers, the adjacent phase across
+#' the homozygous stretch is not identifiable from the haplotypes, so the corresponding
+#' entries are \code{NA}. Consequently the canonical oracle representation for full-sib
+#' fitting is the \code{2 x T} haplotype matrix itself, not an adjacent phase vector.
 #'
 #' @param H Integer matrix \code{2 x z} of homolog alleles (0/1).
 #' @return Integer vector length z-1: 1 = coupling, 0 = repulsion; \code{NA} for an

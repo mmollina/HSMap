@@ -6,8 +6,10 @@
 \usage{
 hmm_map_fullsib(
   x,
-  phased_m,
-  phased_p,
+  phased_m = NULL,
+  phased_p = NULL,
+  haplotypes_m = NULL,
+  haplotypes_p = NULL,
   crosses = NULL,
   order = NULL,
   epsilon = 0.05,
@@ -23,10 +25,19 @@ hmm_map_fullsib(
 \item{x}{An \code{HSMap.data} object with cross-aware fields (\code{crosses},
 \code{parent_genotypes}).}
 
-\item{phased_m}{Named list mapping each mother id to an oracle maternal phase vector
-(length \code{z-1}, 1 = coupling, 0 = repulsion), aligned to \code{order}.}
+\item{phased_m, phased_p}{\emph{Legacy compatibility only.} Named lists mapping each
+mother / sire id to a fully resolved adjacent phase vector (length \code{z-1},
+1 = coupling, 0 = repulsion). \strong{Any \code{NA} (unresolved) phase is rejected}
+-- unresolved phase is never treated as coupling. Used only when the corresponding
+\code{haplotypes_*} entry is absent. Prefer \code{haplotypes_*}.}
 
-\item{phased_p}{Named list mapping each sire id to an oracle paternal phase vector.}
+\item{haplotypes_m, haplotypes_p}{\strong{Canonical oracle input.} Named lists
+mapping each mother / sire id to a fully resolved \code{2 x T} haplotype allele
+matrix (entries 0/1, rows = homolog 1/2), with column names giving the markers
+(or exactly \code{length(order)} columns in \code{order}). This is preferred over
+\code{phased_*} because it is unambiguous when heterozygous markers are separated
+by homozygous markers. \code{NA} (unresolved) entries are rejected. The same
+parent id resolves to the same matrix across crosses.}
 
 \item{crosses}{Optional character vector of \code{cross_id}s to fit; default all
 \code{known_sire_genotyped} crosses.}
