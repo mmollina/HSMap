@@ -1,0 +1,56 @@
+url: https://mmollina.github.io/HSMap
+
+template:
+  bootstrap: 5
+
+reference:
+- title: "Reading data"
+  contents:
+  - read_HSMap_data
+- title: "Two-point (pairwise) analysis"
+  contents:
+  - pairwise_rf
+  - tpt_filter
+  - pairwise_heatmap
+- title: "Grouping and ordering"
+  contents:
+  - group_markers
+  - mds_order
+- title: "Phasing"
+  contents:
+  - phase_from_pairwise
+  - plot_phase
+- title: "Multipoint HMM mapping"
+  contents:
+  - hmm_map
+  - hmm_map_joint
+  - hmm_map_blocks
+- title: "Map reporting and plotting"
+  contents:
+  - get_block_map
+  - plot_block_map
+  - plot_map_list
+  - haldane
+- title: "Decoding and diagnostics"
+  contents:
+  - calc_haploprob
+  - test_map_heterogeneity
+- title: "Simulation and I/O"
+  contents:
+  - sim_multi_pop
+  - sim_multi_chrom
+  - make_map
+  - write_sim_genotypes
+  - write_sim_pedigree
+- title: "Utilities and print methods"
+  contents:
+  - hs_pal
+  - aggregate_matrix
+  - drop_gap_markers
+  - hsmap-print
+
+articles:
+- title: "Get started"
+  navbar: ~
+  contents:
+  - getting-started
