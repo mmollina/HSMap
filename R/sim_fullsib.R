@@ -39,6 +39,7 @@
 #'       for OP crosses); \code{cross_table}.
 #'     \item \code{markers}, \code{params}.
 #'   }
+#' @importFrom stats runif rbinom
 #' @export
 sim_fullsib <- function(n_markers = 20L,
                         crosses = NULL,
