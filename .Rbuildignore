@@ -9,3 +9,11 @@
 ^\.gitignore$
 ^\.gitattributes$
 ^\.positai$
+^README\.Rmd$
+^data-raw$
+^\.github$
+^_pkgdown\.yml$
+^docs$
+^CITATION\.cff$
+^cran-comments\.md$
+^\.lintr$
