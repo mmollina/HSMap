@@ -73,3 +73,12 @@ drawn independently per marker from a pollen-pool frequency (the current OP mode
 Parents referenced by the same ID across crosses are simulated once, so a shared
 mother (or sire) carries one genotype, one phase, and one map.
 }
+\section{Lifecycle - experimental (not part of the current paper)}{
+
+The known-sire / full-sib functions are \strong{experimental} and are \strong{not}
+part of the published open-pollinated method. They currently support only
+\strong{oracle parental haplotypes} and are \strong{not ready for automatic real-data
+mapping}; the API may change without a deprecation cycle. See
+\code{dev/known_sire_design.md}.
+}
+

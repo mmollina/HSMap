@@ -27,3 +27,10 @@ coupling interval and swapped across a repulsion interval, anchored so that the
 first heterozygous marker places the A allele on homolog 1. Phase is thus applied
 exactly once, in this construction; the resulting labels feed the full-sib emission.
 }
+\section{Lifecycle - experimental (not part of the current paper)}{
+
+A helper for the \strong{experimental} known-sire / full-sib functions, which are
+\strong{not} part of the published open-pollinated method and are \strong{not ready
+for automatic real-data mapping}. See \code{dev/known_sire_design.md}.
+}
+

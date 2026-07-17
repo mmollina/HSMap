@@ -39,6 +39,12 @@
 #'       for OP crosses); \code{cross_table}.
 #'     \item \code{markers}, \code{params}.
 #'   }
+#' @section Lifecycle - experimental (not part of the current paper):
+#' The known-sire / full-sib functions are \strong{experimental} and are \strong{not}
+#' part of the published open-pollinated method. They currently support only
+#' \strong{oracle parental haplotypes} and are \strong{not ready for automatic real-data
+#' mapping}; the API may change without a deprecation cycle. See
+#' \code{dev/known_sire_design.md}.
 #' @importFrom stats runif rbinom
 #' @export
 sim_fullsib <- function(n_markers = 20L,

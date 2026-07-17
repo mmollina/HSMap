@@ -173,6 +173,14 @@
 #'   sires -- NOT parent-specific maps. \code{$fit$maternal_meioses_by_mother} and
 #'   \code{$fit$paternal_meioses_by_sire} give the per-interval meiosis counts pooled
 #'   into each map. See also \code{$fit} for r/d/interval status and traces.
+#' @section Lifecycle - experimental (not part of the current paper):
+#' The known-sire / full-sib functions are \strong{experimental}. They are \strong{not}
+#' part of the published open-pollinated method; they currently require \strong{oracle
+#' parental haplotypes} (phase supplied and held fixed -- there is no automatic full-sib
+#' two-point estimation or parental-phase inference yet), and they are \strong{not ready
+#' for automatic real-data mapping}. Their API and outputs may change without a
+#' deprecation cycle. See \code{dev/known_sire_design.md} and
+#' \code{dev/known_sire_overview.md}.
 #' @export
 hmm_map_fullsib <- function(x, phased_m = NULL, phased_p = NULL,
                             haplotypes_m = NULL, haplotypes_p = NULL,
@@ -350,6 +358,14 @@ hmm_map_fullsib <- function(x, phased_m = NULL, phased_p = NULL,
 #'   genotyped sires; \code{maternal_crosses} / \code{paternal_crosses} and the
 #'   per-interval \code{maternal_meioses_by_mother} / \code{paternal_meioses_by_sire}
 #'   show exactly what is pooled. Not parent-specific.
+#' @section Lifecycle - experimental (not part of the current paper):
+#' The known-sire / full-sib functions are \strong{experimental}. They are \strong{not}
+#' part of the published open-pollinated method; they currently require \strong{oracle
+#' parental haplotypes} (phase supplied and held fixed -- there is no automatic full-sib
+#' two-point estimation or parental-phase inference yet), and they are \strong{not ready
+#' for automatic real-data mapping}. Their API and outputs may change without a
+#' deprecation cycle. See \code{dev/known_sire_design.md} and
+#' \code{dev/known_sire_overview.md}.
 #' @export
 hmm_map_mixed <- function(x, phased_m = NULL, phased_p = NULL,
                           haplotypes_m = NULL, haplotypes_p = NULL, order = NULL,

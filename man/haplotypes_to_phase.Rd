@@ -25,3 +25,10 @@ the homozygous stretch is not identifiable from the haplotypes, so the correspon
 entries are \code{NA}. Consequently the canonical oracle representation for full-sib
 fitting is the \code{2 x T} haplotype matrix itself, not an adjacent phase vector.
 }
+\section{Lifecycle - experimental (not part of the current paper)}{
+
+A helper for the \strong{experimental} known-sire / full-sib functions, which are
+\strong{not} part of the published open-pollinated method and are \strong{not ready
+for automatic real-data mapping}. See \code{dev/known_sire_design.md}.
+}
+

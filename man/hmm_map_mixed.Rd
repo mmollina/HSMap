@@ -69,3 +69,14 @@ with a dam-specific paternal gametic frequency \code{q}; full-sib crosses use th
 four-state model. With only OP crosses present, dispatches to the existing engine so
 OP-only results are unchanged. See \code{dev/known_sire_design.md}.
 }
+\section{Lifecycle - experimental (not part of the current paper)}{
+
+The known-sire / full-sib functions are \strong{experimental}. They are \strong{not}
+part of the published open-pollinated method; they currently require \strong{oracle
+parental haplotypes} (phase supplied and held fixed -- there is no automatic full-sib
+two-point estimation or parental-phase inference yet), and they are \strong{not ready
+for automatic real-data mapping}. Their API and outputs may change without a
+deprecation cycle. See \code{dev/known_sire_design.md} and
+\code{dev/known_sire_overview.md}.
+}
+

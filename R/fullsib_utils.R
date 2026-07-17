@@ -20,6 +20,10 @@
 #'
 #' @return An integer matrix \code{2 x z} with rows = homolog 1 and 2 and entries in
 #'   \code{{0,1}} (allele a / A); \code{NA} at markers with a missing genotype.
+#' @section Lifecycle - experimental (not part of the current paper):
+#' A helper for the \strong{experimental} known-sire / full-sib functions, which are
+#' \strong{not} part of the published open-pollinated method and are \strong{not ready
+#' for automatic real-data mapping}. See \code{dev/known_sire_design.md}.
 #' @export
 phase_to_haplotypes <- function(genotype, phase_vec) {
   g <- as.integer(genotype)
@@ -66,6 +70,10 @@ phase_to_haplotypes <- function(genotype, phase_vec) {
 #' @param H Integer matrix \code{2 x z} of homolog alleles (0/1).
 #' @return Integer vector length z-1: 1 = coupling, 0 = repulsion; \code{NA} for an
 #'   interval whose two markers are not both heterozygous (phase undefined there).
+#' @section Lifecycle - experimental (not part of the current paper):
+#' A helper for the \strong{experimental} known-sire / full-sib functions, which are
+#' \strong{not} part of the published open-pollinated method and are \strong{not ready
+#' for automatic real-data mapping}. See \code{dev/known_sire_design.md}.
 #' @export
 haplotypes_to_phase <- function(H) {
   z <- ncol(H)
