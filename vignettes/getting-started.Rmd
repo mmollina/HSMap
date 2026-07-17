@@ -108,7 +108,14 @@ error rate `epsilon` is fixed at the assay's expected value (here 1%).
 
 ```{r}
 map1 <- hmm_map(dat1, phased = ph1, dam = 1, epsilon = 0.01)
-sum(inv_haldane(map1$fit$r))   # total map length in cM (Haldane)
+
+# Total map length. Do NOT summarise a map with `sum(inv_haldane(map1$fit$r))` in
+# general: an interval at no linkage (r ~ 0.5) would be turned into a huge finite cM
+# distance. Use the gap-aware `get_block_map()`, which reports no-linkage / unresolved
+# intervals as gaps (NA) and never inflates them. Here the family is fully resolved, so
+# the blockwise map is a single block:
+bm1 <- get_block_map(hmm_map_blocks(dat1, ph1), "haldane")
+bm1$total_linked_length             # gap-safe total map length in cM (Haldane)
 ```
 
 ```{r, fig.alt = "Linkage map of the single family as a track of marker positions in centiMorgans."}

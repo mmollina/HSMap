@@ -65,8 +65,12 @@ paternal mixture per marker. Values are clipped to \verb{(1e-6, 1-1e-6)} before 
 added to \code{paternal_pA_base} \emph{per marker}. The perturbed values are then
 truncated into \verb{(1e-4, 1-1e-4)}.}
 
-\item{known_sire_prob_per_pop}{Numeric in \verb{[0,1]}. When no pedigree is passed,
-each population independently has a known sire with this probability.}
+\item{known_sire_prob_per_pop}{Numeric in \verb{[0,1]}. When no pedigree is passed, each
+population independently has a known sire with this probability. \strong{This is a
+simulation-only, fixed paternal-genotype mechanism:} the sire's genotype is drawn
+independently per marker (no linked paternal meiosis, no paternal haplotype), and it
+does \strong{not} imply or enable known-sire / full-sib mapping --- the estimators
+here model the open-pollinated / unknown-sire case only.}
 
 \item{error_rate}{Numeric in \verb{[0,1]}. Per offspring/marker error rate for replacing
 a generated genotype with a different value.}
@@ -155,9 +159,15 @@ heterogeneity, a zero-mean Gaussian jitter with SD \code{paternal_pA_sd} is
 added \strong{per marker} and truncated into \verb{(1e-4, 1-1e-4)}.
 \item If a population has a \emph{known sire} (probability
 \code{known_sire_prob_per_pop} when no pedigree is given), the sire genotype is
-drawn per marker under HWE at the population's perturbed allele frequency
+drawn \strong{per marker} under HWE at the population's perturbed allele frequency
 and encoded as a one-hot column in the 3 x T \code{pi_true} matrix for that
-population.
+population. This is a \strong{simulation-only} device that fixes a paternal
+\emph{genotype} composition; the paternal genotypes are generated \strong{independently
+across markers} (there is no linked paternal meiosis and no paternal
+haplotype). It does \strong{not} correspond to, and must not be read as, support for
+known-sire / full-sib linkage mapping: the estimation functions in this package
+model the open-pollinated / unknown-sire case only (the paternal contribution is
+integrated out per marker through a dam-specific gametic frequency).
 }
 
 \strong{Phase along the chromosome}

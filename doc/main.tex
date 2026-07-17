@@ -13,8 +13,20 @@
 \emergencystretch=1.5em  % gentle extra stretch to avoid overfull boxes
 
 \title{Inference of Recombination and Maternal Linkage Phase in Open-Pollinated Diploid Families}
-\author{Marcelo Mollinari, Kim McKeever, Molly Irvin, Fikret Isik}
-\date{September 2025}
+\author{%
+  Marcelo Mollinari$^{\ast}$, Kim McKeever, Molly Irvin, Fikret Isik\\[6pt]
+  {\normalsize\itshape Affiliations to be confirmed.}\\
+  {\normalsize $^{\ast}$Corresponding author (assumed); e-mail to be confirmed.}
+}
+% AUTHOR / AFFILIATION METADATA --- TO BE CONFIRMED MANUALLY (do not guess or invent):
+%   (a) each author's affiliation(s): institution, department, city, country;
+%   (b) the corresponding author (assumed here to be Marcelo Mollinari) and the
+%       corresponding e-mail address;
+%   (c) ORCID iDs, if the authors wish to include them;
+%   (d) author roles / contributions (e.g. the CRediT taxonomy).
+% The above are placeholders only; no affiliation, e-mail, ORCID, or role has been
+% assumed beyond the corresponding-author guess, which must be verified.
+\date{}   % submission/preprint date to be set at submission; the stale "September 2025" was removed
 
 \begin{document}
 \maketitle
@@ -23,7 +35,7 @@
 \noindent\textbf{Background.} Linkage mapping in outcrossing and open-pollinated
 species is complicated by unknown paternity: offspring in a half-sib family share a
 known mother but are sired by one or more unknown fathers, so the paternal contribution
-to each offspring genotype cannot be observed directly. % TODO-CITATION: half-sib / open-pollinated mapping designs in breeding.
+to each offspring genotype cannot be observed directly \citep{GrattapagliaSederoff1994}.
 \noindent\textbf{Results.} We present \textsf{HSMap}, an \textsf{R} package that infers
 maternal recombination and linkage phase from open-pollinated diploid half-sib families
 using a fast \textsf{C++} maternal hidden Markov model. The unknown paternal
@@ -45,12 +57,12 @@ reporting of unresolved phase and unlinked intervals.
 \section{Introduction}
 Linkage maps order molecular markers along chromosomes and quantify the recombination
 between them, and they remain foundational for quantitative trait locus (QTL) mapping,
-genome assembly validation, and the study of recombination itself.
-% TODO-CITATION: general importance of linkage maps / QTL mapping.
+genome assembly validation, and the study of recombination itself
+\citep{LanderBotstein1989}.
 In many outcrossing plants and in open-pollinated breeding populations, the natural unit
 of observation is a \emph{half-sib family}: a single known mother (dam) with many
-offspring whose fathers are unknown and potentially numerous (a pollen pool).
-% TODO-CITATION: open-pollinated / polycross designs in tree and forage breeding.
+offspring whose fathers are unknown and potentially numerous (a pollen pool), a design
+central to linkage mapping in outcrossing species \citep{GrattapagliaSederoff1994}.
 This design is attractive because such families are inexpensive to generate at scale,
 but it poses a specific statistical difficulty for mapping: because the sire(s) are
 unknown, the paternal allele transmitted to each offspring is a latent quantity, and the
@@ -61,8 +73,8 @@ A common response is to discard the paternal contribution by analysing only mark
 which the dam is heterozygous and treating the paternal allele as noise. This wastes
 information and does not provide a principled likelihood. A more explicit alternative is
 to model the transmission of the maternal homologs directly with a hidden Markov model
-(HMM) and to integrate out the unknown paternal allele at each marker.
-% TODO-CITATION: HMM-based inheritance models / hidden Markov models for mapping.
+(HMM), as in multilocus linkage analysis \citep{LanderGreen1987}, and to integrate out
+the unknown paternal allele at each marker.
 Two features of the open-pollinated setting then demand care. First, the paternal
 contribution is not a single sire's genotype but a \emph{pollen-pool} composition that
 can differ between dams; it must be estimated, and it should be allowed to be
