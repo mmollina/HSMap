@@ -15,6 +15,30 @@
   list(dist = dist, status = status)
 }
 
+# Shared numerical-argument validation for the full-sib / mixed fitters.
+.fs_validate_inputs <- function(epsilon, tol, maxit, r_start, lambda = NULL, q0 = NULL) {
+  num1 <- function(v) is.numeric(v) && length(v) == 1L && !is.na(v)
+  if (!num1(epsilon) || epsilon < 0 || epsilon >= 1)
+    stop("`epsilon` must be a single number in [0, 1).", call. = FALSE)
+  if (!num1(tol) || tol <= 0)
+    stop("`tol` must be a single positive number.", call. = FALSE)
+  if (!num1(maxit) || maxit < 1 || maxit != round(maxit))
+    stop("`maxit` must be a single positive integer.", call. = FALSE)
+  if (!num1(r_start) || r_start < 0 || r_start > 0.5)
+    stop("`r_start` must be a single number in [0, 0.5].", call. = FALSE)
+  if (!is.null(lambda) && (!num1(lambda) || lambda < 0))
+    stop("`lambda` must be a single number >= 0.", call. = FALSE)
+  if (!is.null(q0) && (!num1(q0) || q0 < 0 || q0 > 1))
+    stop("`q0` must be a single number in [0, 1].", call. = FALSE)
+  invisible(TRUE)
+}
+
+# Material (scale-aware) decrease of the active objective. Used both inside the loop and
+# for the final-step check (objective at the final returned params vs the preceding one).
+.fs_obj_decreased <- function(new, old, rel = 1e-8) {
+  is.finite(old) && is.finite(new) && new < old - rel * (1 + abs(old))
+}
+
 # Build a cross's maternal/paternal 2xT allele matrices from parent genotypes and
 # Resolve a parent's oracle 2 x length(order) allele matrix (entries 0/1) from EITHER
 # an explicit haplotype matrix (the canonical input) OR a fully-resolved legacy phase
@@ -120,6 +144,7 @@ hmm_map_fullsib <- function(x, phased_m = NULL, phased_p = NULL,
   if (!inherits(x, "HSMap.data")) stop("`x` must be an HSMap.data object.")
   if (is.null(x$crosses)) stop("`x` lacks cross-aware fields; re-read with read_HSMap_data().")
   on_missing <- match.arg(on_missing)
+  .fs_validate_inputs(epsilon, tol, maxit, r_start)
   all_cross <- x$crosses
   fs_ids <- names(all_cross)[vapply(all_cross, function(c) identical(c$family_type, "known_sire_genotyped"), logical(1))]
   if (!is.null(crosses)) fs_ids <- intersect(crosses, fs_ids)
@@ -143,10 +168,10 @@ hmm_map_fullsib <- function(x, phased_m = NULL, phased_p = NULL,
   sires <- unique(vapply(fs_ids, function(cid) all_cross[[cid]]$father_id, character(1)))
 
   r_m <- rep(r_start, Ti); r_p <- rep(r_start, Ti)
-  r_lo <- 0.0; r_hi <- 0.5 - 1e-12
-  clampr <- function(r) pmin(pmax(r, r_lo), r_hi)
+  clampr <- function(r) pmin(pmax(r, 0.0), 0.5 - 1e-12)
 
-  ll_trace <- numeric(0); prev_ll <- -Inf; obj_dec <- FALSE
+  ll_trace <- numeric(0); dm_trace <- numeric(0); dp_trace <- numeric(0)
+  prev_ll <- -Inf; obj_dec <- FALSE
   converged <- FALSE; conv_reason <- "maxit"; it <- 0L
   OBJ_DEC_REL <- 1e-8
   for (it in seq_len(maxit)) {
@@ -157,21 +182,26 @@ hmm_map_fullsib <- function(x, phased_m = NULL, phased_p = NULL,
       m_sw <- m_sw + es$m_switch; p_sw <- p_sw + es$p_switch; tot <- tot + es$total
       ll <- ll + es$loglik
     }
-    ll_trace <- c(ll_trace, ll)
-    if (it > 1L && ll < prev_ll - OBJ_DEC_REL * (1 + abs(prev_ll))) obj_dec <- TRUE
+    ll_trace <- c(ll_trace, ll)                      # active objective at the current params
+    if (it > 1L && .fs_obj_decreased(ll, prev_ll)) obj_dec <- TRUE
     r_m_new <- clampr(ifelse(tot > 0, m_sw / tot, r_m))
     r_p_new <- clampr(ifelse(tot > 0, p_sw / tot, r_p))
-    dr <- max(max(abs(r_m_new - r_m)), max(abs(r_p_new - r_p)))
+    dm <- max(abs(r_m_new - r_m)); dp <- max(abs(r_p_new - r_p))
+    dm_trace <- c(dm_trace, dm); dp_trace <- c(dp_trace, dp)
     rel <- if (is.finite(prev_ll)) abs(ll - prev_ll) / (1 + abs(prev_ll)) else Inf
     r_m <- r_m_new; r_p <- r_p_new
-    if (it > 1L && rel < tol && dr < tol) { converged <- TRUE; conv_reason <- "relative_objective_and_params_stable"; prev_ll <- ll; break }
+    if (it > 1L && rel < tol && max(dm, dp) < tol) {
+      converged <- TRUE; conv_reason <- "relative_objective_and_params_stable"; prev_ll <- ll; break }
     prev_ll <- ll
   }
-  # final E-step at the final parameters: log-likelihood + per-interval meiosis counts
+  # objective recomputed at the FINAL returned parameters (after the last M-step); the
+  # traces end exactly at this value, and a decrease at the final step is caught too.
   final_ll <- 0; final_tot <- numeric(Ti)
   for (cid in fs_ids) { b <- built[[cid]]
     es <- fs_estep_cpp(b$G, b$Am, b$Ap, r_m, r_p, epsilon, FALSE)
     final_ll <- final_ll + es$loglik; final_tot <- final_tot + es$total }
+  if (.fs_obj_decreased(final_ll, prev_ll)) obj_dec <- TRUE     # decrease at the final M-step
+  ll_trace <- c(ll_trace, final_ll); dm_trace <- c(dm_trace, 0); dp_trace <- c(dp_trace, 0)
   if (obj_dec) { converged <- FALSE; conv_reason <- "objective_decreased" }
   if (!converged) {
     if (identical(conv_reason, "objective_decreased"))
@@ -202,7 +232,9 @@ hmm_map_fullsib <- function(x, phased_m = NULL, phased_p = NULL,
     gap_r = gap_r, meiosis_count = stats::setNames(final_tot, inm),
     logLik = final_ll, objective = final_ll,
     converged = converged, conv_reason = conv_reason, iters = it,
-    objective_decreased = obj_dec, loglik_trace = ll_trace,
+    objective_decreased = obj_dec,
+    loglik_trace = ll_trace, objective_trace = ll_trace,   # no penalty for pure full-sib
+    max_dr_m_trace = dm_trace, max_dr_p_trace = dp_trace,
     epsilon = epsilon, posterior = post
   )
   out <- list(
@@ -264,6 +296,7 @@ hmm_map_mixed <- function(x, phased_m = NULL, phased_p = NULL,
   if (!inherits(x, "HSMap.data")) stop("`x` must be an HSMap.data object.")
   if (is.null(x$crosses)) stop("`x` lacks cross-aware fields; re-read with read_HSMap_data().")
   untyped_sire <- match.arg(untyped_sire); on_missing <- match.arg(on_missing)
+  .fs_validate_inputs(epsilon, tol, maxit, r_start, lambda, q0)
   cx <- x$crosses
   ftype <- vapply(cx, function(c) c$family_type, character(1))
 
@@ -354,7 +387,9 @@ hmm_map_mixed <- function(x, phased_m = NULL, phased_p = NULL,
   q_pen <- function(qv) if (lambda > 0) sum(alpha_p * log(pmin(pmax(qv,1e-12),1-1e-12)) +
                                             beta_p * log(pmin(pmax(1-qv,1e-12),1-1e-12))) else 0
 
-  obj_trace <- numeric(0); prev_obj <- -Inf; obj_dec <- FALSE
+  obj_trace <- numeric(0); ll_trace <- numeric(0)
+  dm_trace <- numeric(0); dp_trace <- numeric(0); dq_trace <- numeric(0)
+  prev_obj <- -Inf; obj_dec <- FALSE
   converged <- FALSE; conv_reason <- "maxit"; it <- 0L; OBJ_DEC_REL <- 1e-8
   for (it in seq_len(maxit)) {
     m_sw <- numeric(Ti); m_tot <- numeric(Ti); p_sw <- numeric(Ti); p_tot <- numeric(Ti)
@@ -371,8 +406,8 @@ hmm_map_mixed <- function(x, phased_m = NULL, phased_p = NULL,
       NA_d[[d]] <- NA_d[[d]] + es$N_A; Na_d[[d]] <- Na_d[[d]] + es$N_a; ll <- ll + es$loglik }
 
     pen <- sum(vapply(q_list, q_pen, numeric(1)))
-    obj <- ll + pen; obj_trace <- c(obj_trace, obj)
-    if (it > 1L && obj < prev_obj - OBJ_DEC_REL * (1 + abs(prev_obj))) obj_dec <- TRUE
+    obj <- ll + pen; obj_trace <- c(obj_trace, obj); ll_trace <- c(ll_trace, ll)
+    if (it > 1L && .fs_obj_decreased(obj, prev_obj)) obj_dec <- TRUE
 
     r_m_new <- clampr(ifelse(m_tot > 0, m_sw / m_tot, r_m))
     r_p_new <- clampr(ifelse(p_tot > 0, p_sw / p_tot, r_p))
@@ -381,15 +416,16 @@ hmm_map_mixed <- function(x, phased_m = NULL, phased_p = NULL,
       qd <- (NA_d[[d]] + alpha_p) / (NA_d[[d]] + Na_d[[d]] + alpha_p + beta_p)
       qd <- pmin(pmax(qd, 1e-9), 1 - 1e-9); dq <- max(dq, max(abs(qd - q_list[[d]]))); q_new[[d]] <- qd
     }
-    dr <- max(max(abs(r_m_new - r_m)), max(abs(r_p_new - r_p)))
+    dm <- max(abs(r_m_new - r_m)); dp <- max(abs(r_p_new - r_p))
+    dm_trace <- c(dm_trace, dm); dp_trace <- c(dp_trace, dp); dq_trace <- c(dq_trace, dq)
     rel <- if (is.finite(prev_obj)) abs(obj - prev_obj) / (1 + abs(prev_obj)) else Inf
     r_m <- r_m_new; r_p <- r_p_new; q_list <- q_new
-    if (it > 1L && rel < tol && dr < tol && dq < tol) {
+    if (it > 1L && rel < tol && max(dm, dp) < tol && dq < tol) {
       converged <- TRUE; conv_reason <- "relative_objective_and_params_stable"; prev_obj <- obj; break }
     prev_obj <- obj
   }
-  # final E-step at the final parameters: log-likelihood + per-interval meiosis counts
-  # (maternal total pools OP + full-sib; paternal total is full-sib only).
+  # objective recomputed at the FINAL returned parameters:
+  # final_objective = final_logLik + final_q_penalty. Traces end exactly here.
   final_ll <- 0; final_m_tot <- numeric(Ti); final_p_tot <- numeric(Ti)
   for (cid in fs_ids) { b <- fs_built[[cid]]
     es <- fs_estep_cpp(b$G, b$Am, b$Ap, r_m, r_p, epsilon, FALSE)
@@ -397,6 +433,11 @@ hmm_map_mixed <- function(x, phased_m = NULL, phased_p = NULL,
   for (cid in op_ids) { b <- op_built[[cid]]
     es <- op_estep_cpp(b$G, b$Am, r_m, q_list[[b$mother]], epsilon)
     final_ll <- final_ll + es$loglik; final_m_tot <- final_m_tot + es$total }
+  final_pen <- sum(vapply(q_list, q_pen, numeric(1)))
+  final_obj <- final_ll + final_pen
+  if (.fs_obj_decreased(final_obj, prev_obj)) obj_dec <- TRUE   # decrease at the final M-step
+  obj_trace <- c(obj_trace, final_obj); ll_trace <- c(ll_trace, final_ll)
+  dm_trace <- c(dm_trace, 0); dp_trace <- c(dp_trace, 0); dq_trace <- c(dq_trace, 0)
   if (obj_dec) { converged <- FALSE; conv_reason <- "objective_decreased" }
   if (!converged) {
     if (identical(conv_reason, "objective_decreased"))
@@ -427,9 +468,11 @@ hmm_map_mixed <- function(x, phased_m = NULL, phased_p = NULL,
     gap_r = gap_r,
     meiosis_count_m = stats::setNames(final_m_tot, inm),
     meiosis_count_p = stats::setNames(final_p_tot, inm),
-    logLik = final_ll, objective = prev_obj,
+    logLik = final_ll, q_penalty = final_pen, objective = final_obj,
     converged = converged, conv_reason = conv_reason, iters = it,
-    objective_decreased = obj_dec, objective_trace = obj_trace,
+    objective_decreased = obj_dec,
+    objective_trace = obj_trace, loglik_trace = ll_trace,
+    max_dr_m_trace = dm_trace, max_dr_p_trace = dp_trace, max_dq_trace = dq_trace,
     epsilon = epsilon, q = q_list, posterior = post)
   out <- list(order = order, fit = fit,
               contributing_crosses = c(fs_ids, op_ids),

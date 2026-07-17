@@ -307,3 +307,63 @@ test_that("C2. the same parent resolves to the same haplotype matrix across cros
   expect_error(HSMap:::.resolve_parent_alleles("M1","mother",
     list(M1=`[<-`(H, 1, 1, NA_integer_)), NULL, NULL, ord, "test"), "unresolved")
 })
+
+
+# ---- Commit 3: EM convergence aligned with the stabilized OP engine ---------
+test_that("C3. traces end exactly at the final values (full-sib)", {
+  sim <- sim_fullsib(n_markers=8, crosses=data.frame(mother="M1",father="S1",n=500),
+                     r_const_m=0.1, r_const_p=0.25, epsilon=0.02, seed=18)
+  pm <- list(M1=sim$truth$parents[["M1"]]$phase_vec); pp <- list(S1=sim$truth$parents[["S1"]]$phase_vec)
+  fit <- hmm_map_fullsib(sim$data, phased_m=pm, phased_p=pp, epsilon=0.02, tol=1e-7, maxit=1000)
+  f <- fit$fit
+  expect_equal(utils::tail(f$loglik_trace, 1), f$logLik, tolerance=1e-9)
+  expect_equal(utils::tail(f$objective_trace, 1), f$objective, tolerance=1e-9)
+  expect_equal(utils::tail(f$max_dr_m_trace, 1), 0)
+  expect_equal(utils::tail(f$max_dr_p_trace, 1), 0)
+  expect_length(f$loglik_trace, f$iters + 1L)            # one per iter + final append
+  expect_true(all(diff(f$objective_trace) >= -1e-6))     # non-decreasing incl. final step
+  expect_false(f$objective_decreased)
+})
+
+test_that("C3. mixed objective contains the final q penalty and traces end at final", {
+  cr <- data.frame(mother=c("M1","D1"), father=c("S1",NA), n=c(500,500), stringsAsFactors=FALSE)
+  sim <- sim_fullsib(n_markers=8, crosses=cr, r_const_m=0.1, r_const_p=0.2,
+                     epsilon=0.02, op_paternal_pA=0.4, seed=71)
+  pm <- lapply(sim$truth$parents, function(p) p$phase_vec)
+  fit <- hmm_map_mixed(sim$data, phased_m=pm, phased_p=pm, epsilon=0.02, lambda=20, tol=1e-7, maxit=1000)
+  f <- fit$fit
+  expect_equal(f$objective, f$logLik + f$q_penalty, tolerance=1e-9)
+  expect_equal(utils::tail(f$objective_trace, 1), f$objective, tolerance=1e-9)
+  expect_equal(utils::tail(f$loglik_trace, 1), f$logLik, tolerance=1e-9)
+  expect_equal(utils::tail(f$max_dq_trace, 1), 0)
+  expect_length(f$objective_trace, f$iters + 1L)
+  expect_true(all(diff(f$objective_trace) >= -1e-6))
+})
+
+test_that("C3. a low maxit reports non-convergence (mixed)", {
+  cr <- data.frame(mother=c("M1","D1"), father=c("S1",NA), n=c(400,400), stringsAsFactors=FALSE)
+  sim <- sim_fullsib(n_markers=8, crosses=cr, epsilon=0.02, seed=72)
+  pm <- lapply(sim$truth$parents, function(p) p$phase_vec)
+  expect_warning(mx <- hmm_map_mixed(sim$data, phased_m=pm, phased_p=pm, maxit=2), "did not converge")
+  expect_false(mx$fit$converged)
+  expect_identical(mx$fit$conv_reason, "maxit")
+})
+
+test_that("C3. the final-step objective-decrease check works and is scale-aware", {
+  expect_true(HSMap:::.fs_obj_decreased(10, 20))
+  expect_false(HSMap:::.fs_obj_decreased(20, 10))
+  expect_false(HSMap:::.fs_obj_decreased(10 - 1e-13, 10))   # sub-tolerance change not flagged
+  expect_false(HSMap:::.fs_obj_decreased(5, -Inf))          # first iteration never flags
+})
+
+test_that("C3. numeric input validation", {
+  sim <- sim_fullsib(n_markers=6, crosses=data.frame(mother="M1",father="S1",n=50), seed=1)
+  pm <- list(M1=sim$truth$parents[["M1"]]$phase_vec); pp <- list(S1=sim$truth$parents[["S1"]]$phase_vec)
+  expect_error(hmm_map_fullsib(sim$data, phased_m=pm, phased_p=pp, epsilon=1),    "epsilon")
+  expect_error(hmm_map_fullsib(sim$data, phased_m=pm, phased_p=pp, epsilon=-0.1), "epsilon")
+  expect_error(hmm_map_fullsib(sim$data, phased_m=pm, phased_p=pp, tol=0),        "tol")
+  expect_error(hmm_map_fullsib(sim$data, phased_m=pm, phased_p=pp, maxit=2.5),    "maxit")
+  expect_error(hmm_map_fullsib(sim$data, phased_m=pm, phased_p=pp, r_start=0.6),  "r_start")
+  expect_error(hmm_map_mixed(sim$data, phased_m=pm, phased_p=pp, lambda=-1),      "lambda")
+  expect_error(hmm_map_mixed(sim$data, phased_m=pm, phased_p=pp, q0=1.5),         "q0")
+})
