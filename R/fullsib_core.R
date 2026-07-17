@@ -380,8 +380,18 @@ hmm_map_mixed <- function(x, phased_m = NULL, phased_p = NULL,
   if (is.null(order)) order <- colnames(cx[[c(fs_ids, op_ids)[1]]]$G)
   order <- as.character(order); z <- length(order); Ti <- z - 1L
 
-  # ---- OP-only: dispatch to the existing engine (unchanged results) ---------
-  if (!length(fs_ids)) {
+  # ---- OP-only: dispatch to the existing engine ONLY when it is cross-safe ---
+  # The legacy engine is keyed by mother in x$G_list, so dispatching is byte-identical
+  # only when every OP cross's cross_id equals its mother_id, mother names are unique,
+  # and x$G_list holds them. Otherwise (e.g. several OP-modelled crosses sharing a
+  # mother via the untyped-sire fallback) dispatching would lose cross identity, so we
+  # fall through to the cross-aware OP E-step below instead of silently mis-dispatching.
+  op_mothers <- vapply(op_ids, function(cid) cx[[cid]]$mother_id, character(1))
+  cross_is_mother <- vapply(op_ids, function(cid) identical(cx[[cid]]$cross_id, cx[[cid]]$mother_id), logical(1))
+  safe_dispatch <- !length(fs_ids) && length(op_ids) > 0L &&
+    !anyDuplicated(op_mothers) && all(cross_is_mother) &&
+    all(op_mothers %in% names(x$G_list %||% list()))
+  if (safe_dispatch) {
     # the legacy allele-state engine consumes an adjacent phase vector; derive one from
     # explicit haplotypes if needed and reject an unresolved (NA) result.
     op_phase <- function(mom) {

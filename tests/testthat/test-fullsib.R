@@ -497,3 +497,73 @@ test_that("C5. distinguishable maps: unique optimum on the (r_m, r_p) grid + sta
   expect_equal(as.numeric(f1$fit$r_p), as.numeric(f2$fit$r_p), tolerance=1e-4)
   expect_true(f1$fit$identifiable_labels)
 })
+
+
+# ---- Commit 6: cross-aware OP dispatch safety ------------------------------
+# Two OP-modelled (known-but-untyped-sire) crosses that SHARE one mother; cross_id !=
+# mother_id, so the legacy G_list (keyed by mother) cannot represent them 1:1.
+.mk_untyped_shared_mother <- function(z = 6, n = 400, seed = 1) {
+  ord <- sprintf("M%04d", 1:z)
+  Hm <- matrix(c(1L, 0L), 2, z)                      # mother het everywhere (coupling)
+  gm <- as.integer(Hm[1, ] + Hm[2, ]); names(gm) <- ord
+  rm <- rep(0.1, z - 1)
+  mk_cross <- function(sire, sd) {
+    set.seed(sd)
+    P <- matrix(0L, n, z); P[, 1] <- sample(1:2, n, TRUE)
+    for (k in 2:z) { sw <- rbinom(n, 1, rm[k-1]) == 1; P[, k] <- ifelse(sw, 3L - P[, k-1], P[, k-1]) }
+    ma <- sapply(1:z, function(k) Hm[cbind(P[, k], k)])
+    pa <- matrix(rbinom(n * z, 1, 0.4), n, z)        # independent paternal (OP)
+    G <- ma + pa; storage.mode(G) <- "integer"; rownames(G) <- sprintf("%s_o%03d", sire, 1:n); colnames(G) <- ord
+    list(cross_id = paste0("M1__x__", sire), mother_id = "M1", father_id = sire,
+         family_type = "known_sire_untyped", offspring = rownames(G),
+         M = gm, F = stats::setNames(rep(NA_integer_, z), ord), G = G)
+  }
+  c1 <- mk_cross("S1", seed + 1); c2 <- mk_cross("S2", seed + 2)
+  cids <- c(c1$cross_id, c2$cross_id)
+  dat <- list(G_list = stats::setNames(list(c1$G, c2$G), cids),
+    M_list = stats::setNames(list(gm, gm), cids),
+    alleles = data.frame(marker_id = ord, REF = "A", ALT = "B", chrom = 1L, position = 1:z, stringsAsFactors = FALSE),
+    pedigree = NULL,
+    cross_table = data.frame(cross_id = cids, mother_id = "M1", father_id = c("S1", "S2"),
+      family_type = "known_sire_untyped", n_offspring = n, mother_genotyped = TRUE,
+      father_genotyped = FALSE, stringsAsFactors = FALSE),
+    crosses = stats::setNames(list(c1, c2), cids), parent_genotypes = list(M1 = gm),
+    F_list = stats::setNames(list(NULL, NULL), cids))
+  class(dat) <- "HSMap.data"
+  list(data = dat, Hm = `colnames<-`(Hm, ord), ord = ord, rm = rm, n = n)
+}
+
+test_that("C6. an ordinary one-mother OP family dispatches to the legacy engine", {
+  so <- sim_fullsib(n_markers=8, crosses=data.frame(mother="D1",father=NA,n=400),
+                    r_const_m=0.12, op_paternal_pA=0.4, epsilon=0.02, seed=61)
+  pm <- list(D1 = so$truth$parents[["D1"]]$phase_vec)
+  mx <- hmm_map_mixed(so$data, phased_m=pm, epsilon=0.05, lambda=20, tol=1e-6, maxit=1000, r_start=0.05)
+  expect_true(mx$dispatched)                          # cross_id == mother, unique -> safe
+})
+
+test_that("C6. untyped-sire crosses sharing a mother do NOT silently dispatch", {
+  d <- .mk_untyped_shared_mother(z=6, n=400, seed=5)
+  hm <- list(M1 = d$Hm)
+  # default: an untyped sire errors
+  expect_error(hmm_map_mixed(d$data, haplotypes_m=hm), "untyped")
+  # OP fallback: cross-aware path (NOT legacy dispatch), one maternal map pooling BOTH
+  mx <- hmm_map_mixed(d$data, haplotypes_m=hm, untyped_sire="open_pollinated",
+                      epsilon=0.02, lambda=20, tol=1e-6, maxit=1000)
+  expect_false(mx$dispatched)                          # cross identity preserved, not dispatched
+  expect_setequal(mx$contributing_crosses, c("M1__x__S1","M1__x__S2"))
+  expect_true(all(abs(mx$fit$maternal_meioses_by_mother[, "M1"] - 2 * d$n) < 1e-6))  # both pooled
+  expect_lt(sqrt(mean((as.numeric(mx$fit$r_m) - d$rm)^2)), 0.03)  # maternal map recovered
+})
+
+test_that("C6. a single untyped-sire OP-fallback cross (cross_id != mother) is cross-aware", {
+  d <- .mk_untyped_shared_mother(z=6, n=600, seed=9)
+  # keep only one cross so mothers are unique but cross_id != mother_id
+  d$data$crosses <- d$data$crosses["M1__x__S1"]
+  d$data$cross_table <- d$data$cross_table[1, , drop=FALSE]
+  d$data$G_list <- d$data$G_list["M1__x__S1"]; d$data$M_list <- d$data$M_list["M1__x__S1"]
+  d$data$F_list <- d$data$F_list["M1__x__S1"]
+  mx <- hmm_map_mixed(d$data, haplotypes_m=list(M1=d$Hm), untyped_sire="open_pollinated",
+                      epsilon=0.02, lambda=20, tol=1e-6, maxit=1000)
+  expect_false(mx$dispatched)                          # cross_id != mother -> not dispatched
+  expect_lt(sqrt(mean((as.numeric(mx$fit$r_m) - d$rm)^2)), 0.035)
+})
