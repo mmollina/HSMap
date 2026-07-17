@@ -64,7 +64,12 @@ genotype at a fitted marker.}
 inheritance probabilities.}
 }
 \value{
-An object of class \code{HSMap.fullsib} (see \code{$fit}).
+An object of class \code{HSMap.fullsib}. It reports a \strong{sex-specific
+consensus} map (\code{map_scope = "sex_specific_consensus"}): one maternal map
+\code{r_m} pooling all mothers and one paternal map \code{r_p} pooling all genotyped
+sires -- NOT parent-specific maps. \code{$fit$maternal_meioses_by_mother} and
+\code{$fit$paternal_meioses_by_sire} give the per-interval meiosis counts pooled
+into each map. See also \code{$fit} for r/d/interval status and traces.
 }
 \description{
 Estimate a shared maternal recombination map \code{r_m} and a shared paternal

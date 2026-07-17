@@ -54,7 +54,12 @@ boundary (gap): map distance \code{NA}. Default \code{0.499}.}
 \item{return_posterior}{Logical; include full-sib posterior inheritance probabilities.}
 }
 \value{
-An object of class \code{HSMap.mixed}.
+An object of class \code{HSMap.mixed} reporting a \strong{sex-specific
+consensus} map (\code{map_scope = "sex_specific_consensus"}): one maternal map
+pooling ALL crosses (open-pollinated + full-sib) and one paternal map pooling the
+genotyped sires; \code{maternal_crosses} / \code{paternal_crosses} and the
+per-interval \code{maternal_meioses_by_mother} / \code{paternal_meioses_by_sire}
+show exactly what is pooled. Not parent-specific.
 }
 \description{
 Estimate a shared maternal recombination map from a dataset containing both

@@ -133,6 +133,17 @@ Maternal and paternal `r` are **separate**; they are never assumed equal.
 
 ## 6. EM sufficient statistics and parameter sharing
 
+**Map scope: sex-specific consensus.** The estimator returns exactly **one consensus
+maternal map** (`r_m`), pooling maternal meioses across *all* mothers/crosses, and **one
+consensus paternal map** (`r_p`), pooling paternal meioses across *all* genotyped sires.
+A mother or sire used in several crosses does **not** receive a parent-specific map — all
+her/his meioses contribute to the single shared map of that sex. The output records this
+as `map_scope = "sex_specific_consensus"` and reports, per interval, the meiosis counts
+attributed to each mother (`maternal_meioses_by_mother`) and each sire
+(`paternal_meioses_by_sire`), so exactly which counts are pooled into each consensus map
+is inspectable. Parent-specific map heterogeneity is a possible future extension, not
+part of this core.
+
 Per offspring, from the scaled forward–backward posteriors `ξ_k(s,s')`:
 
 ```

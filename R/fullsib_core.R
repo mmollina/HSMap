@@ -134,7 +134,12 @@
 #' @param return_posterior Logical; if \code{TRUE}, include per-cross posterior
 #'   inheritance probabilities.
 #'
-#' @return An object of class \code{HSMap.fullsib} (see \code{$fit}).
+#' @return An object of class \code{HSMap.fullsib}. It reports a \strong{sex-specific
+#'   consensus} map (\code{map_scope = "sex_specific_consensus"}): one maternal map
+#'   \code{r_m} pooling all mothers and one paternal map \code{r_p} pooling all genotyped
+#'   sires -- NOT parent-specific maps. \code{$fit$maternal_meioses_by_mother} and
+#'   \code{$fit$paternal_meioses_by_sire} give the per-interval meiosis counts pooled
+#'   into each map. See also \code{$fit} for r/d/interval status and traces.
 #' @export
 hmm_map_fullsib <- function(x, phased_m = NULL, phased_p = NULL,
                             haplotypes_m = NULL, haplotypes_p = NULL,
@@ -196,10 +201,17 @@ hmm_map_fullsib <- function(x, phased_m = NULL, phased_p = NULL,
   }
   # objective recomputed at the FINAL returned parameters (after the last M-step); the
   # traces end exactly at this value, and a decrease at the final step is caught too.
+  # Per-interval meiosis counts are also attributed to each mother / sire to make the
+  # consensus pooling explicit.
+  inm <- paste0(order[-z], "-", order[-1])
   final_ll <- 0; final_tot <- numeric(Ti)
+  mat_by_mom <- matrix(0, Ti, length(moms), dimnames = list(inm, moms))
+  pat_by_sire <- matrix(0, Ti, length(sires), dimnames = list(inm, sires))
   for (cid in fs_ids) { b <- built[[cid]]
     es <- fs_estep_cpp(b$G, b$Am, b$Ap, r_m, r_p, epsilon, FALSE)
-    final_ll <- final_ll + es$loglik; final_tot <- final_tot + es$total }
+    final_ll <- final_ll + es$loglik; final_tot <- final_tot + es$total
+    mat_by_mom[, all_cross[[cid]]$mother_id] <- mat_by_mom[, all_cross[[cid]]$mother_id] + es$total
+    pat_by_sire[, all_cross[[cid]]$father_id] <- pat_by_sire[, all_cross[[cid]]$father_id] + es$total }
   if (.fs_obj_decreased(final_ll, prev_ll)) obj_dec <- TRUE     # decrease at the final M-step
   ll_trace <- c(ll_trace, final_ll); dm_trace <- c(dm_trace, 0); dp_trace <- c(dp_trace, 0)
   if (obj_dec) { converged <- FALSE; conv_reason <- "objective_decreased" }
@@ -220,7 +232,6 @@ hmm_map_fullsib <- function(x, phased_m = NULL, phased_p = NULL,
     names(post) <- fs_ids
   }
 
-  inm <- paste0(order[-z], "-", order[-1])
   rep_m <- .fs_interval_report(r_m, final_tot, gap_r)
   rep_p <- .fs_interval_report(r_p, final_tot, gap_r)
   fit <- list(
@@ -230,6 +241,12 @@ hmm_map_fullsib <- function(x, phased_m = NULL, phased_p = NULL,
     interval_status_m = stats::setNames(rep_m$status, inm),
     interval_status_p = stats::setNames(rep_p$status, inm),
     gap_r = gap_r, meiosis_count = stats::setNames(final_tot, inm),
+    # sex-specific CONSENSUS maps: r_m pools all maternal meioses across mothers, r_p
+    # pools all paternal meioses across genotyped sires. These are NOT parent-specific
+    # maps; a repeated mother/sire contributes to one shared map (see design note).
+    map_scope = "sex_specific_consensus",
+    maternal_meioses_by_mother = mat_by_mom,
+    paternal_meioses_by_sire = pat_by_sire,
     logLik = final_ll, objective = final_ll,
     converged = converged, conv_reason = conv_reason, iters = it,
     objective_decreased = obj_dec,
@@ -238,9 +255,10 @@ hmm_map_fullsib <- function(x, phased_m = NULL, phased_p = NULL,
     epsilon = epsilon, posterior = post
   )
   out <- list(
-    order = order, fit = fit,
+    order = order, fit = fit, map_scope = "sex_specific_consensus",
     contributing_crosses = fs_ids,
     contributing_mothers = moms, contributing_sires = sires,
+    maternal_crosses = fs_ids, paternal_crosses = fs_ids,
     family_type = stats::setNames(rep("known_sire_genotyped", length(fs_ids)), fs_ids),
     parent_phase = list(maternal = phased_m[moms], paternal = phased_p[sires])
   )
@@ -285,7 +303,12 @@ hmm_map_fullsib <- function(x, phased_m = NULL, phased_p = NULL,
 #' @param on_missing \code{"error"} (default) on a missing required parent genotype.
 #' @param return_posterior Logical; include full-sib posterior inheritance probabilities.
 #'
-#' @return An object of class \code{HSMap.mixed}.
+#' @return An object of class \code{HSMap.mixed} reporting a \strong{sex-specific
+#'   consensus} map (\code{map_scope = "sex_specific_consensus"}): one maternal map
+#'   pooling ALL crosses (open-pollinated + full-sib) and one paternal map pooling the
+#'   genotyped sires; \code{maternal_crosses} / \code{paternal_crosses} and the
+#'   per-interval \code{maternal_meioses_by_mother} / \code{paternal_meioses_by_sire}
+#'   show exactly what is pooled. Not parent-specific.
 #' @export
 hmm_map_mixed <- function(x, phased_m = NULL, phased_p = NULL,
                           haplotypes_m = NULL, haplotypes_p = NULL, order = NULL,
@@ -352,7 +375,7 @@ hmm_map_mixed <- function(x, phased_m = NULL, phased_p = NULL,
       r_m = rfit$r, r_p = NULL,
       d_m = stats::setNames(rep_m$dist, inm), d_p = NULL,
       interval_status_m = stats::setNames(rep_m$status, inm), interval_status_p = NULL,
-      gap_r = gap_r,
+      gap_r = gap_r, map_scope = "maternal_consensus",   # OP-only: one maternal map, no paternal
       logLik = rfit$logLik, objective = rfit$objective %||% rfit$penalized_obj,
       converged = rfit$converged, conv_reason = rfit$conv_reason, iters = rfit$iters,
       objective_decreased = rfit$objective_decreased %||% FALSE,
@@ -425,14 +448,24 @@ hmm_map_mixed <- function(x, phased_m = NULL, phased_p = NULL,
     prev_obj <- obj
   }
   # objective recomputed at the FINAL returned parameters:
-  # final_objective = final_logLik + final_q_penalty. Traces end exactly here.
+  # final_objective = final_logLik + final_q_penalty. Traces end exactly here. Per-
+  # interval meiosis counts are attributed to each mother / sire to make the consensus
+  # pooling explicit (maternal pools OP + full-sib; paternal is full-sib sires only).
+  inm <- paste0(order[-z], "-", order[-1])
+  moms  <- unique(c(vapply(fs_ids, function(cid) cx[[cid]]$mother_id, character(1)), dams_op))
+  sires <- unique(vapply(fs_ids, function(cid) cx[[cid]]$father_id, character(1)))
   final_ll <- 0; final_m_tot <- numeric(Ti); final_p_tot <- numeric(Ti)
+  mat_by_mom <- matrix(0, Ti, length(moms), dimnames = list(inm, moms))
+  pat_by_sire <- if (length(sires)) matrix(0, Ti, length(sires), dimnames = list(inm, sires)) else NULL
   for (cid in fs_ids) { b <- fs_built[[cid]]
     es <- fs_estep_cpp(b$G, b$Am, b$Ap, r_m, r_p, epsilon, FALSE)
-    final_ll <- final_ll + es$loglik; final_m_tot <- final_m_tot + es$total; final_p_tot <- final_p_tot + es$total }
+    final_ll <- final_ll + es$loglik; final_m_tot <- final_m_tot + es$total; final_p_tot <- final_p_tot + es$total
+    mat_by_mom[, cx[[cid]]$mother_id] <- mat_by_mom[, cx[[cid]]$mother_id] + es$total
+    pat_by_sire[, cx[[cid]]$father_id] <- pat_by_sire[, cx[[cid]]$father_id] + es$total }
   for (cid in op_ids) { b <- op_built[[cid]]
     es <- op_estep_cpp(b$G, b$Am, r_m, q_list[[b$mother]], epsilon)
-    final_ll <- final_ll + es$loglik; final_m_tot <- final_m_tot + es$total }
+    final_ll <- final_ll + es$loglik; final_m_tot <- final_m_tot + es$total
+    mat_by_mom[, b$mother] <- mat_by_mom[, b$mother] + es$total }
   final_pen <- sum(vapply(q_list, q_pen, numeric(1)))
   final_obj <- final_ll + final_pen
   if (.fs_obj_decreased(final_obj, prev_obj)) obj_dec <- TRUE   # decrease at the final M-step
@@ -454,9 +487,6 @@ hmm_map_mixed <- function(x, phased_m = NULL, phased_p = NULL,
     post <- lapply(fs_ids, function(cid) { b <- fs_built[[cid]]
       fs_estep_cpp(b$G, b$Am, b$Ap, r_m, r_p, epsilon, TRUE)$gamma }); names(post) <- fs_ids
   }
-  moms <- unique(c(vapply(fs_ids, function(cid) cx[[cid]]$mother_id, character(1)), dams_op))
-  sires <- unique(vapply(fs_ids, function(cid) cx[[cid]]$father_id, character(1)))
-  inm <- paste0(order[-z], "-", order[-1])
   rep_m <- .fs_interval_report(r_m, final_m_tot, gap_r)
   rep_p <- .fs_interval_report(r_p, final_p_tot, gap_r)
   fit <- list(
@@ -468,15 +498,21 @@ hmm_map_mixed <- function(x, phased_m = NULL, phased_p = NULL,
     gap_r = gap_r,
     meiosis_count_m = stats::setNames(final_m_tot, inm),
     meiosis_count_p = stats::setNames(final_p_tot, inm),
+    # sex-specific CONSENSUS maps: r_m pools maternal meioses across ALL crosses (OP +
+    # full-sib), r_p pools paternal meioses across genotyped sires. NOT parent-specific.
+    map_scope = "sex_specific_consensus",
+    maternal_meioses_by_mother = mat_by_mom,
+    paternal_meioses_by_sire = pat_by_sire,
     logLik = final_ll, q_penalty = final_pen, objective = final_obj,
     converged = converged, conv_reason = conv_reason, iters = it,
     objective_decreased = obj_dec,
     objective_trace = obj_trace, loglik_trace = ll_trace,
     max_dr_m_trace = dm_trace, max_dr_p_trace = dp_trace, max_dq_trace = dq_trace,
     epsilon = epsilon, q = q_list, posterior = post)
-  out <- list(order = order, fit = fit,
+  out <- list(order = order, fit = fit, map_scope = "sex_specific_consensus",
               contributing_crosses = c(fs_ids, op_ids),
               contributing_mothers = moms, contributing_sires = sires,
+              maternal_crosses = c(fs_ids, op_ids), paternal_crosses = fs_ids,
               family_type = stats::setNames(ftype[c(fs_ids, op_ids)], c(fs_ids, op_ids)),
               parent_phase = list(maternal = phased_m[moms], paternal = phased_p[sires]),
               dispatched = FALSE)

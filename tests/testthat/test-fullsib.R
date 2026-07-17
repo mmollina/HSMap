@@ -367,3 +367,50 @@ test_that("C3. numeric input validation", {
   expect_error(hmm_map_mixed(sim$data, phased_m=pm, phased_p=pp, lambda=-1),      "lambda")
   expect_error(hmm_map_mixed(sim$data, phased_m=pm, phased_p=pp, q0=1.5),         "q0")
 })
+
+
+# ---- Commit 4: sex-specific consensus map scope + pooling metadata ----------
+test_that("C4. output declares sex-specific consensus scope and per-parent pooling", {
+  cr <- data.frame(mother=c("M1","M2"), father=c("S1","S2"), n=c(400,400), stringsAsFactors=FALSE)
+  sim <- sim_fullsib(n_markers=6, crosses=cr, r_const_m=0.1, r_const_p=0.2, epsilon=0.01, seed=301)
+  pm <- lapply(sim$truth$parents, function(p) p$phase_vec)
+  fit <- hmm_map_fullsib(sim$data, phased_m=pm, phased_p=pm, epsilon=0.01, tol=1e-6, maxit=1000)
+  expect_identical(fit$map_scope, "sex_specific_consensus")
+  expect_identical(fit$fit$map_scope, "sex_specific_consensus")
+  # two mothers pool into ONE maternal map; two sires into ONE paternal map
+  expect_setequal(colnames(fit$fit$maternal_meioses_by_mother), c("M1","M2"))
+  expect_setequal(colnames(fit$fit$paternal_meioses_by_sire), c("S1","S2"))
+  # each mother contributes ~n meioses per interval to the shared maternal map
+  expect_true(all(abs(fit$fit$maternal_meioses_by_mother[, "M1"] - 400) < 1e-6))
+  # row sums equal the total maternal meioses per interval
+  expect_equal(rowSums(fit$fit$maternal_meioses_by_mother), as.numeric(fit$fit$meiosis_count),
+               tolerance=1e-8, ignore_attr=TRUE)
+})
+
+test_that("C4. a repeated mother/sire pools into one shared map (no parent-specific map)", {
+  # repeated mother M1 (two sires) and repeated sire S1 (two mothers)
+  cr <- data.frame(mother=c("M1","M1","M2"), father=c("S1","S2","S1"),
+                   n=c(300,300,300), stringsAsFactors=FALSE)
+  sim <- sim_fullsib(n_markers=6, crosses=cr, r_const_m=0.1, r_const_p=0.2, epsilon=0.01, seed=302)
+  pm <- lapply(sim$truth$parents, function(p) p$phase_vec)
+  fit <- hmm_map_fullsib(sim$data, phased_m=pm, phased_p=pm, epsilon=0.01, tol=1e-6, maxit=1000)
+  # ONE maternal map and ONE paternal map (single r_m / r_p vectors), not per parent
+  expect_length(fit$fit$r_m, 5L); expect_length(fit$fit$r_p, 5L)
+  # repeated mother M1 pools BOTH her crosses (600 meioses/interval); S1 pools its two
+  expect_true(all(abs(fit$fit$maternal_meioses_by_mother[, "M1"] - 600) < 1e-6))
+  expect_true(all(abs(fit$fit$paternal_meioses_by_sire[, "S1"] - 600) < 1e-6))
+  expect_setequal(fit$maternal_crosses, c("M1__x__S1","M1__x__S2","M2__x__S1"))
+})
+
+test_that("C4. mixed pooling: maternal counts include OP, paternal only full-sib sires", {
+  cr <- data.frame(mother=c("M1","D1"), father=c("S1",NA), n=c(400,400), stringsAsFactors=FALSE)
+  sim <- sim_fullsib(n_markers=6, crosses=cr, r_const_m=0.1, r_const_p=0.2,
+                     epsilon=0.01, op_paternal_pA=0.4, seed=303)
+  pm <- lapply(sim$truth$parents, function(p) p$phase_vec)
+  fit <- hmm_map_mixed(sim$data, phased_m=pm, phased_p=pm, epsilon=0.01, lambda=20, tol=1e-6, maxit=1000)
+  expect_identical(fit$map_scope, "sex_specific_consensus")
+  expect_setequal(colnames(fit$fit$maternal_meioses_by_mother), c("M1","D1"))  # OP dam included
+  expect_setequal(colnames(fit$fit$paternal_meioses_by_sire), "S1")            # only full-sib sire
+  expect_setequal(fit$maternal_crosses, c("M1__x__S1","D1"))
+  expect_setequal(fit$paternal_crosses, "M1__x__S1")
+})
