@@ -12,21 +12,24 @@
 #'   \code{beta = lambda * (1 - q0)}).
 #' @param q0 Numeric prior mean for the paternal gametic frequency (default
 #'   \code{0.5}); the pseudocount target that \code{q_k^(d)} is shrunk toward.
-#' @param r_start Ignored; kept for API compatibility.
-#' @param tol Numeric convergence tolerance for the golden search (default \code{1e-6}).
-#' @param maxit Integer maximum iterations per pair (default \code{200}).
+#' @param tol Numeric tolerance for the r optimizer's bounded local refinement
+#'   (default \code{1e-6}).
+#' @param maxit Integer maximum iterations for the local refinement (default \code{200}).
 #' @param tiny Numeric floor to avoid \code{log(0)} (default \code{1e-12}).
-#' @param share_pi_across_dams Logical; if \code{FALSE} (default) \code{q_k^(d)} is
+#' @param share_q_across_dams Logical; if \code{FALSE} (default) \code{q_k^(d)} is
 #'   estimated per dam; if \code{TRUE} the AA/aa counts are pooled across dams to a
 #'   single per-marker \code{q}.
-#' @param verbose Logical; reserved for future use (default \code{FALSE}).
-#' @param n_threads Integer number of threads; \code{NULL} for the backend default.
+#' @param return_diagnostics Logical; if \code{TRUE}, additionally return a
+#'   \code{diagnostics} list of per-pair optimizer and count matrices.
+#' @param verbose Logical; print a one-line header (default \code{FALSE}).
+#' @param n_threads Integer number of threads (positive).
 #'
-#' @return A list with matrices \code{r}, \code{lod_r}, \code{lod_ph}, \code{logLik}
-#' (all T x T); \code{mom_phase_list} (per-dam phase calls); \code{lod_ph_list}
-#' (per-dam phase-LOD matrices, whose elementwise sum is \code{lod_ph}); and
-#' \code{q_list} (per-dam, per-marker paternal gametic frequencies, \code{NA} where
-#' the dam is not heterozygous).
+#' @return A list with matrices \code{r}, \code{lod_r} (raw LOD vs the exact
+#' \code{r = 0.5} null), \code{lod_ph}, \code{logLik}, and \code{no_linkage} (all
+#' T x T); \code{mom_phase_list}; \code{lod_ph_list} (per-dam phase-LOD matrices,
+#' whose elementwise sum is \code{lod_ph}); \code{q_list} (per-dam per-marker
+#' \code{q_k^(d)}, \code{NA} where the dam is not heterozygous); \code{optimizer},
+#' \code{n_grid}; and, if \code{return_diagnostics}, a \code{diagnostics} list.
 #'
 #' @keywords internal
 #' @noRd
@@ -34,11 +37,11 @@ cpp_pairwise_rf <- function(G_list,
                             M_list,
                             lambda = 20,
                             q0 = 0.5,
-                            r_start = 0.05,
                             tol = 1e-6,
                             maxit = 200,
                             tiny = 1e-12,
-                            share_pi_across_dams = FALSE,
+                            share_q_across_dams = FALSE,
+                            return_diagnostics = FALSE,
                             verbose = FALSE,
                             n_threads = getOption("HSMap.n_threads", 1L)) {
 
@@ -97,11 +100,11 @@ cpp_pairwise_rf <- function(G_list,
     M_list = M_list,
     lambda = lambda,
     q0 = q0,
-    r_start = r_start,
     tol = tol,
     maxit = maxit,
     tiny = tiny,
-    share_pi_across_dams = share_pi_across_dams,
+    share_q_across_dams = share_q_across_dams,
+    return_diagnostics = return_diagnostics,
     verbose = verbose
   )
 
@@ -115,9 +118,13 @@ cpp_pairwise_rf <- function(G_list,
     mom_phase_list = res$mom_phase_list,
     lod_ph_list    = res$lod_ph_list,
     q_list         = res$q_list,
+    no_linkage     = res$no_linkage,
+    optimizer      = res$optimizer,
+    n_grid         = res$n_grid,
     markers        = markers,
     n_dams         = length(G_list)
   )
+  if (isTRUE(return_diagnostics)) out$diagnostics <- res$diagnostics
   class(out) <- "cpp_pairwise_rf"
   out
 }
@@ -147,23 +154,31 @@ cpp_pairwise_rf <- function(G_list,
 #'     genotype matrix} \eqn{G_g}.
 #'   \item Genotypes are coded as 0 (aa), 1 (Aa), 2 (AA), or \code{NA} (missing).
 #'   \item In each \eqn{G_g} matrix, markers are in columns and offspring are in rows.
-#'   \item Paternal contributions are modeled as a mixture of genotypes and are
-#'     statistically integrated out using a robust likelihood function.
+#'   \item The paternal contribution enters through a single per-marker, **per-dam**
+#'     paternal gametic frequency \eqn{q_k^{(d)}} (the identifiable quantity); it is
+#'     not a diploid genotype mixture. The pairwise model assumes zero genotyping
+#'     error.
 #'   \item A family is informative for a marker pair \eqn{(i,j)} only if the dam
 #'     is heterozygous for both markers (\emph{double-heterozygous}).
 #' }
 #'
 #' @section Estimation Process:
-#' For each marker pair \eqn{(i,j)}, the function:
+#' All selected marker pairs \eqn{(i,j)} are evaluated (not only adjacent pairs). For
+#' each pair, the function:
 #' \enumerate{
-#'   \item Aggregates the \eqn{3 \times 3} contingency tables of offspring
-#'     genotype combinations \eqn{(Y_i, Y_j)} across all families.
-#'   \item Estimates paternal allele frequencies from the marginal offspring
-#'     genotype distributions.
-#'   \item Computes the log-likelihood of the data under both coupling and
-#'     repulsion phases for a given recombination fraction \eqn{r}.
-#'   \item Maximizes the combined objective function over \eqn{r \in (10^{-6}, 0.49)}
-#'     using a golden-section search to find the optimal \eqn{\hat{r}}:
+#'   \item Estimates a **dam-specific** paternal gametic frequency \eqn{q_k^{(d)}}
+#'     from that dam's zero-error AA/aa transmissions (a heterozygous offspring is
+#'     uninformative), using every offspring with an observed call at the marker,
+#'     including those missing at the other marker of the pair.
+#'   \item Computes the log-likelihood under coupling and repulsion for a given
+#'     recombination fraction \eqn{r}; single-marker (partially missing) observations
+#'     enter through the correct single-marker marginal and are not discarded.
+#'   \item Maximizes the combined objective over \eqn{r \in [10^{-6}, 0.5]} --- the
+#'     no-linkage null is evaluated at \strong{exactly} \eqn{r = 0.5} and
+#'     \eqn{\hat r = 0.5} is permitted. Because the objective is a sum over dams of a
+#'     maximum of two phase-specific likelihoods it may be multimodal, so it is
+#'     maximized by a coarse grid over \eqn{[\varepsilon, 0.5]} (including 0.5)
+#'     followed by bounded local refinement, not a single golden-section search:
 #'     \deqn{ \mathrm{Obj}(r) = \sum_{g=1}^{G} \max\{\ell_g(\mathrm{Coupling}; r), \ell_g(\mathrm{Repulsion}; r)\} }
 #' }
 #'
@@ -198,12 +213,14 @@ cpp_pairwise_rf <- function(G_list,
 #'     \code{NA} if uninformative.
 #' }
 #'
-#' @section Regularization (`lambda`):
-#' The likelihood calculation includes a regularization parameter `lambda` that
-#' adds pseudo-counts to the paternal genotype mixture probabilities. This acts
-#' as a Dirichlet-type shrinkage, stabilizing estimates for pairs with few
-#' informative offspring. The default value of `20` provides a balance between
-#' bias and variance.
+#' @section Regularization (`lambda`, `q0`):
+#' `lambda` is the total pseudocount of a per-marker prior on the (one-dimensional)
+#' paternal gametic frequency \eqn{q_k^{(d)}}: \eqn{\alpha = \mathtt{lambda}\cdot
+#' \mathtt{q0}}, \eqn{\beta = \mathtt{lambda}\cdot(1-\mathtt{q0})}, so
+#' \eqn{\hat q = (n_{AA}+\alpha)/(n_{AA}+n_{aa}+\alpha+\beta)}. It is a one-parameter
+#' shrinkage of \eqn{q} toward \code{q0}, \strong{not} a Dirichlet prior on three
+#' genotype frequencies. The default \code{20} is retained for backward compatibility
+#' only and has not been chosen by a formal sensitivity study.
 #'
 #' @section Performance and Parallelism:
 #' \itemize{
@@ -231,20 +248,28 @@ cpp_pairwise_rf <- function(G_list,
 #'   null, generic labels (`"Pop1"`, `"Pop2"`, etc.) are created.
 #' @param threads An integer specifying the number of parallel threads to use.
 #'   If `NULL`, \pkg{RcppParallel} uses its default setting.
-#' @param lambda A numeric scalar for the pseudo-count weight used in likelihood
-#'   regularization. See the \emph{Regularization} section for details. Default is `20`.
+#' @param lambda A numeric scalar for the pseudo-count weight used in `q`
+#'   regularization. Default `20`, **retained for backward compatibility only**;
+#'   this value has **not** been selected through a formal sensitivity study and may
+#'   change once one is available. See the \emph{Regularization} section.
 #' @param q0 Numeric prior target (in `[0, 1]`) for the dam-specific paternal
 #'   gametic frequencies \eqn{q_k^{(d)}}: the value each `q` is shrunk toward, via
 #'   pseudocounts `alpha = lambda * q0` and `beta = lambda * (1 - q0)`. Default `0.5`.
-#' @param tol Numeric tolerance for the golden-section search algorithm.
+#' @param tol Numeric tolerance for the r optimizer's bounded local refinement.
 #'   Default is `1e-6`.
-#' @param maxit The maximum number of iterations for the golden-section search.
+#' @param maxit The maximum number of iterations for the local refinement.
 #'   Default is `200`.
 #' @param tiny A small numeric floor to prevent `log(0)` errors in the likelihood
 #'   calculation. Default is `1e-12`.
+#' @param return_diagnostics A logical value. If `TRUE`, the returned `fit`
+#'   includes a `diagnostics` list of per-pair optimizer and missing-data count
+#'   matrices. Default `FALSE` (compact output).
 #' @param return_input A logical value. If `TRUE`, the aligned input lists
 #'   (`G_list` and `M_list`) sent to the C++ backend are included in the output,
 #'   which is useful for debugging.
+#' @param ... Reserved for deprecated/removed arguments. Passing `r_start` or
+#'   `share_pi_across_dams` triggers a deprecation warning (they no longer have an
+#'   effect); any other unknown argument name raises an error.
 #'
 #' @return An object of class `"HSMap.tpt"`, which is a list containing:
 #' \itemize{
@@ -311,9 +336,38 @@ pairwise_rf <- function(
     tol = 1e-6,
     maxit = 200,
     tiny = 1e-12,
-    return_input = FALSE
+    return_diagnostics = FALSE,
+    return_input = FALSE,
+    ...
 ){
   if (!inherits(x, "HSMap.data")) stop("`x` must be an HSMap.data object.")
+  # Deprecated / removed arguments: warn rather than silently ignore.
+  .dots <- list(...)
+  if (length(.dots)) {
+    dep <- intersect(names(.dots), c("r_start", "share_pi_across_dams"))
+    for (nm in dep) {
+      if (identical(nm, "share_pi_across_dams"))
+        warning("`share_pi_across_dams` is deprecated and ignored here; the ",
+                "public default is dam-specific q. Use the internal ",
+                "`share_q_across_dams` if pooling is required.", call. = FALSE)
+      else
+        warning(sprintf("`%s` is deprecated and has no effect; it was removed.", nm),
+                call. = FALSE)
+    }
+    unknown <- setdiff(names(.dots), dep)
+    if (length(unknown))
+      stop("unused argument(s): ", paste(unknown, collapse = ", "), call. = FALSE)
+  }
+  # Resolve threads here (NULL is allowed at the public API): use the package option
+  # when it is a valid positive integer, else a safe default of 1 (deterministic).
+  if (is.null(threads)) {
+    opt <- getOption("HSMap.n_threads", 1L)
+    threads <- if (is.numeric(opt) && length(opt) == 1L && is.finite(opt) && opt >= 1)
+      as.integer(opt) else 1L
+  }
+  if (!is.numeric(threads) || length(threads) != 1L || !is.finite(threads) || threads < 1)
+    stop("`threads` must be NULL or a single positive integer.")
+  threads <- as.integer(threads)
   G_list_in <- x$G_list
   M_list_in <- x$M_list
   fam_ids   <- names(G_list_in) %||% paste0("Pop", seq_along(G_list_in))
@@ -375,17 +429,12 @@ pairwise_rf <- function(
   }
   names(G_list) <- names(M_list) <- parent_label
 
-  # --- threads ---
-  if (!is.null(threads)) {
-    RcppParallel::setThreadOptions(numThreads = as.integer(threads))
-  }
-
-  # --- run C++ ---
+  # --- run C++ (thread options are set inside cpp_pairwise_rf) ---
   t0 <- proc.time()[["elapsed"]]
   fit <- cpp_pairwise_rf(
     G_list = G_list, M_list = M_list,
     lambda = lambda, q0 = q0, tol = tol, maxit = maxit,
-    tiny = tiny, n_threads = threads
+    tiny = tiny, return_diagnostics = return_diagnostics, n_threads = threads
   )
   t1 <- proc.time()[["elapsed"]]
 
@@ -394,7 +443,7 @@ pairwise_rf <- function(
     markers = markers,
     presence_threshold = thr,
     parent_label = parent_label,
-    threads = if (is.null(threads)) NA_integer_ else as.integer(threads),
+    threads = as.integer(threads),
     time_sec = unname(t1 - t0)
   )
   if (isTRUE(return_input)) out$inputs <- list(G_list = G_list, M_list = M_list)

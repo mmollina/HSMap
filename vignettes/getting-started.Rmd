@@ -69,7 +69,8 @@ markers <- sim1$truth$markers_union
 ## 2. Two-point analysis
 
 `pairwise_rf()` estimates a recombination fraction and a phase LOD for every marker
-pair, pooling information across families and integrating out the sires.
+pair, sharing the recombination fraction across informative families while estimating
+a dam-specific paternal gametic frequency and profiling phase per dam.
 
 ```{r}
 tpt <- pairwise_rf(dat1, threads = 2)
@@ -128,32 +129,38 @@ tpt3 <- pairwise_rf(dat3, threads = 2)
 ph3  <- phase_from_pairwise(tpt3, order = mk3, dam = "all")   # one entry per dam
 ```
 
-`hmm_map(dam = "all")` estimates the **shared** map by the joint EM (the default
-`method = "joint"`), pooling expected recombination counts across dams:
+When dams are heterozygous at different marker subsets, the pairwise phase graph can
+break into disconnected components, so some adjacent intervals have an **unresolved**
+relative phase (`NA` in `phase_vec`). `hmm_map()` deliberately refuses to run through
+unresolved phase; the safe workflow is `hmm_map_blocks()`, which splits the order into
+resolved phase blocks and fits the shared joint EM **within each block**:
 
 ```{r}
-joint <- hmm_map(dat3, phased = ph3, dam = "all")
-length(joint$fit$r)               # one shared recombination vector
-sum(inv_haldane(joint$fit$r))     # total map length in cM
+joint <- hmm_map_blocks(dat3, ph3)     # fits the joint map within each resolved block
+joint$n_blocks                          # number of resolved phase blocks
+# Safe map summary: gaps (no-linkage / unresolved) are NA, never huge cM. Never use
+# raw sum(inv_haldane(r)) here, because r may contain a no-linkage boundary.
+bm <- get_block_map(joint, "haldane")
+bm$total_linked_length                  # finite linked cM summed across blocks
+table(bm$interval_table$status)         # linked / gap classification per interval
 ```
 
-```{r, fig.alt = "Shared linkage map estimated jointly from three dams."}
-plot_map_list(joint, map.function = "haldane")
-```
-
-The joint estimator is the likelihood-based map implied by the model, so it is
-compatible with likelihood-based inference. A legacy per-dam-then-average estimator
-is available for comparison via `method = "consensus"`.
+Each block carries a valid ordered marker set with resolved phase for its contributing
+dams; intervals between blocks are reported as gaps rather than as large centimorgan
+distances. If the whole chromosome is resolved, `hmm_map_blocks()` returns a single
+block identical to the ordinary joint `hmm_map()`. A legacy per-dam-then-average
+estimator is available for comparison via `hmm_map(..., method = "consensus")` on a
+fully resolved order.
 
 ## 6. Per-offspring haplotype probabilities
 
 `calc_haploprob()` returns, for each offspring and marker, the posterior probability
-of having inherited each maternal homolog. It accepts the joint map and decodes
-every dam:
+of having inherited each maternal homolog. It accepts a fitted map with resolved phase;
+here we decode the single-dam map from Section 3:
 
 ```{r}
-gp <- calc_haploprob(dat3, joint)   # named list, one HSMap.gamma per dam
-dim(gp[["P1"]]$gamma)               # [2 homologs, markers, offspring]
+gp <- calc_haploprob(dat1, map1)    # HSMap.gamma for the fitted (resolved) map
+dim(gp$gamma)                       # [2 homologs, markers, offspring]
 ```
 
 These posteriors are the inputs for downstream analyses such as QTL mapping or

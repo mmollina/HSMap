@@ -15,7 +15,9 @@ pairwise_rf(
   tol = 1e-06,
   maxit = 200,
   tiny = 1e-12,
-  return_input = FALSE
+  return_diagnostics = FALSE,
+  return_input = FALSE,
+  ...
 )
 }
 \arguments{
@@ -38,25 +40,35 @@ null, generic labels (\code{"Pop1"}, \code{"Pop2"}, etc.) are created.}
 \item{threads}{An integer specifying the number of parallel threads to use.
 If \code{NULL}, \pkg{RcppParallel} uses its default setting.}
 
-\item{lambda}{A numeric scalar for the pseudo-count weight used in likelihood
-regularization. See the \emph{Regularization} section for details. Default is \code{20}.}
+\item{lambda}{A numeric scalar for the pseudo-count weight used in \code{q}
+regularization. Default \code{20}, \strong{retained for backward compatibility only};
+this value has \strong{not} been selected through a formal sensitivity study and may
+change once one is available. See the \emph{Regularization} section.}
 
 \item{q0}{Numeric prior target (in \verb{[0, 1]}) for the dam-specific paternal
 gametic frequencies \eqn{q_k^{(d)}}: the value each \code{q} is shrunk toward, via
 pseudocounts \code{alpha = lambda * q0} and \code{beta = lambda * (1 - q0)}. Default \code{0.5}.}
 
-\item{tol}{Numeric tolerance for the golden-section search algorithm.
+\item{tol}{Numeric tolerance for the r optimizer's bounded local refinement.
 Default is \code{1e-6}.}
 
-\item{maxit}{The maximum number of iterations for the golden-section search.
+\item{maxit}{The maximum number of iterations for the local refinement.
 Default is \code{200}.}
 
 \item{tiny}{A small numeric floor to prevent \code{log(0)} errors in the likelihood
 calculation. Default is \code{1e-12}.}
 
+\item{return_diagnostics}{A logical value. If \code{TRUE}, the returned \code{fit}
+includes a \code{diagnostics} list of per-pair optimizer and missing-data count
+matrices. Default \code{FALSE} (compact output).}
+
 \item{return_input}{A logical value. If \code{TRUE}, the aligned input lists
 (\code{G_list} and \code{M_list}) sent to the C++ backend are included in the output,
 which is useful for debugging.}
+
+\item{...}{Reserved for deprecated/removed arguments. Passing \code{r_start} or
+\code{share_pi_across_dams} triggers a deprecation warning (they no longer have an
+effect); any other unknown argument name raises an error.}
 }
 \value{
 An object of class \code{"HSMap.tpt"}, which is a list containing:
@@ -93,8 +105,10 @@ The estimation process assumes the following data structure:
 genotype matrix} \eqn{G_g}.
 \item Genotypes are coded as 0 (aa), 1 (Aa), 2 (AA), or \code{NA} (missing).
 \item In each \eqn{G_g} matrix, markers are in columns and offspring are in rows.
-\item Paternal contributions are modeled as a mixture of genotypes and are
-statistically integrated out using a robust likelihood function.
+\item The paternal contribution enters through a single per-marker, \strong{per-dam}
+paternal gametic frequency \eqn{q_k^{(d)}} (the identifiable quantity); it is
+not a diploid genotype mixture. The pairwise model assumes zero genotyping
+error.
 \item A family is informative for a marker pair \eqn{(i,j)} only if the dam
 is heterozygous for both markers (\emph{double-heterozygous}).
 }
@@ -102,16 +116,22 @@ is heterozygous for both markers (\emph{double-heterozygous}).
 
 \section{Estimation Process}{
 
-For each marker pair \eqn{(i,j)}, the function:
+All selected marker pairs \eqn{(i,j)} are evaluated (not only adjacent pairs). For
+each pair, the function:
 \enumerate{
-\item Aggregates the \eqn{3 \times 3} contingency tables of offspring
-genotype combinations \eqn{(Y_i, Y_j)} across all families.
-\item Estimates paternal allele frequencies from the marginal offspring
-genotype distributions.
-\item Computes the log-likelihood of the data under both coupling and
-repulsion phases for a given recombination fraction \eqn{r}.
-\item Maximizes the combined objective function over \eqn{r \in (10^{-6}, 0.49)}
-using a golden-section search to find the optimal \eqn{\hat{r}}:
+\item Estimates a \strong{dam-specific} paternal gametic frequency \eqn{q_k^{(d)}}
+from that dam's zero-error AA/aa transmissions (a heterozygous offspring is
+uninformative), using every offspring with an observed call at the marker,
+including those missing at the other marker of the pair.
+\item Computes the log-likelihood under coupling and repulsion for a given
+recombination fraction \eqn{r}; single-marker (partially missing) observations
+enter through the correct single-marker marginal and are not discarded.
+\item Maximizes the combined objective over \eqn{r \in [10^{-6}, 0.5]} --- the
+no-linkage null is evaluated at \strong{exactly} \eqn{r = 0.5} and
+\eqn{\hat r = 0.5} is permitted. Because the objective is a sum over dams of a
+maximum of two phase-specific likelihoods it may be multimodal, so it is
+maximized by a coarse grid over \eqn{[\varepsilon, 0.5]} (including 0.5)
+followed by bounded local refinement, not a single golden-section search:
 \deqn{ \mathrm{Obj}(r) = \sum_{g=1}^{G} \max\{\ell_g(\mathrm{Coupling}; r), \ell_g(\mathrm{Repulsion}; r)\} }
 }
 }
@@ -151,13 +171,15 @@ inferred phase: \code{1} for coupling, \code{0} for repulsion, and
 }
 }
 
-\section{Regularization (\code{lambda})}{
+\section{Regularization (\code{lambda}, \code{q0})}{
 
-The likelihood calculation includes a regularization parameter \code{lambda} that
-adds pseudo-counts to the paternal genotype mixture probabilities. This acts
-as a Dirichlet-type shrinkage, stabilizing estimates for pairs with few
-informative offspring. The default value of \code{20} provides a balance between
-bias and variance.
+\code{lambda} is the total pseudocount of a per-marker prior on the (one-dimensional)
+paternal gametic frequency \eqn{q_k^{(d)}}: \eqn{\alpha = \mathtt{lambda}\cdot
+\mathtt{q0}}, \eqn{\beta = \mathtt{lambda}\cdot(1-\mathtt{q0})}, so
+\eqn{\hat q = (n_{AA}+\alpha)/(n_{AA}+n_{aa}+\alpha+\beta)}. It is a one-parameter
+shrinkage of \eqn{q} toward \code{q0}, \strong{not} a Dirichlet prior on three
+genotype frequencies. The default \code{20} is retained for backward compatibility
+only and has not been chosen by a formal sensitivity study.
 }
 
 \section{Performance and Parallelism}{

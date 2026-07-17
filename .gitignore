@@ -30,6 +30,15 @@ Thumbs.db
 # Generated validation outputs (scripts are tracked; results are regenerable)
 dev/validation/results/
 
+# Real / private data and individual-level analysis outputs.
+# NEVER commit real genotypes, pedigree records, per-individual outputs, or
+# derived haplotypes. Only scripts, docs, and a small README placeholder are
+# tracked. Data lives locally (see dev/data/README.md) and is passed to the
+# pilot via environment variables.
+dev/data/
+analysis/output/
+analysis/private/
+
 # Vignette / pkgdown build output
 inst/doc/
 docs/

@@ -1,206 +1,232 @@
 #' Phase from pairwise for one or more dams (HSMap)
 #'
 #' @description
-#' Convert pairwise maternal phase calls and their LOD support into a robust,
-#' ordered phase string along a user-supplied marker order. Supports one dam
-#' or more dams in a single call. Internally it builds a signed, LOD-weighted
-#' pairwise matrix and optimizes a 2-cluster assignment (homolog 0 vs 1)
-#' with a spectral initialization followed by greedy coordinate ascent.
+#' Convert dam-specific pairwise maternal phase calls and their LOD support into an
+#' ordered phase assignment along a user-supplied marker order, honestly separating
+#' resolved from unresolved phase.
+#'
+#' The signed, LOD-weighted phase graph is built **separately for each dam** from
+#' that dam's own `lod_ph_list[[d]]` (not the pooled `lod_ph`). Only edges with an
+#' available phase sign, finite LOD, and LOD above the support threshold are used.
+#' The graph is split into connected components; within each component a spectral
+#' initialization and greedy coordinate ascent orient the markers (a heuristic, not
+#' guaranteed globally optimal). The relative orientation of different components is
+#' **unidentified** and is reported as unresolved rather than forced to coupling.
 #'
 #' @param tpt An object of class \code{HSMap.tpt}. Must contain
-#'   \code{tpt$fit$mom_phase_list} (a list of per-dam 0/1 matrices:
-#'   1=coupling, 0=repulsion) and \code{tpt$fit$lod_ph} (non-negative
-#'   LOD support matrix), with identical dimnames.
-#' @param order Character vector with SNP marker IDs in the desired linear order.
-#'   Only markers present in \code{tpt} are used; missing names are dropped with
-#'   a warning.
-#' @param dam Which dam(s) to phase. One of:
-#'   \itemize{
-#'     \item a single dam name (matching \code{names(tpt$fit$mom_phase_list)})
-#'           or integer index,
-#'     \item a vector of dam names or indices,
-#'     \item \code{"all"} to process every dam available.
-#'   }
-#'   Default \code{"all"}.
-#' @param anchor_idx Integer index within \code{order} to fix an absolute label
-#'   (breaks the global sign symmetry). Default \code{1}.
-#' @param anchor_label Integer in \code{c(0,1)} to fix the label at
-#'   \code{order[anchor_idx]} (0 means homolog 0, 1 means homolog 1). Default \code{0}.
-#' @param max_passes Maximum greedy passes. Default \code{50}.
-#' @param tol Non-negative improvement tolerance. Default \code{1e-9}.
+#'   \code{tpt$fit$mom_phase_list} (per-dam 0/1 phase matrices) and per-dam LOD
+#'   support in \code{tpt$fit$lod_ph_list} (falling back to the pooled
+#'   \code{tpt$fit$lod_ph} with a warning if the per-dam list is absent).
+#' @param order Character vector with marker IDs in the desired linear order.
+#'   Markers absent for a dam are dropped with a warning.
+#' @param dam Which dam(s): a dam name/index, a vector of them, or \code{"all"}
+#'   (default).
+#' @param min_phase_lod Minimum phase LOD for an edge to be treated as supported
+#'   (default \code{0}). Even at the default, edges with zero/near-zero evidence are
+#'   excluded (see \code{tie_tol}); an edge counts only when its LOD strictly exceeds
+#'   \code{max(min_phase_lod, tie_tol)}. \strong{The default \code{0} is a backward-
+#'   compatibility choice, not a statistically validated threshold}; a suitable value
+#'   awaits a simulation study.
+#' @param tie_tol Numerical tolerance below which a coupling-vs-repulsion LOD is
+#'   treated as an unresolved tie (default \code{1e-8}).
+#' @param anchor_idx Integer index in \code{order} whose component is sign-anchored
+#'   (breaks that component's sign symmetry only). Default \code{1}.
+#' @param anchor_label Integer in \code{c(0,1)} for the anchor marker. Default \code{0}.
+#' @param max_passes Maximum greedy passes per component. Default \code{50}.
+#' @param tol Non-negative improvement tolerance for greedy ascent. Default \code{1e-9}.
 #' @param verbose Logical; print progress. Default \code{FALSE}.
 #'
-#' @details
-#' Let \code{A} be the dam-specific pairwise phase matrix (1=coupling, 0=repulsion,
-#' NA uninformative) and \code{W} be the \code{lod_ph} matrix (non-negative). The
-#' algorithm builds \code{S = sign(2*A - 1)} (so coupling=+1, repulsion=-1, NA=0)
-#' and sets diagonal to 0. It then forms a symmetric signed weight matrix
-#' \code{J = (S * W)}, symmetrized. A spectral initialization uses the leading
-#' eigenvector of \code{J} to seed a +/-1 assignment; the assignment is flipped
-#' so that \code{order[anchor_idx]} matches \code{anchor_label}. A greedy
-#' coordinate ascent flips markers that improve the quadratic objective
-#' \code{sum_{i<j} J\[i,j\] * x\[i\] * x\[j\]} until no flip exceeds \code{tol} or
-#' \code{max_passes} passes are reached. The final 0/1 clusters define the
-#' adjacent phase vector: phase\[t\]=1 (coupling) when clusters\[t\]==clusters\[t+1\],
-#' otherwise 0 (repulsion).
-#'
-#' @return
-#' If a single dam is requested, returns an \code{HSMap.phased}:
-#' \itemize{
-#'   \item \code{dam} Dam label.
-#'   \item \code{order} Marker order used (after dropping missing).
-#'   \item \code{clusters} Integer vector in \code{c(0,1)} (homolog assignment).
-#'   \item \code{phase_vec} Integer vector length \code{length(order)-1}, 1=coupling, 0=repulsion.
-#'   \item \code{objective}, \code{weighted_agreement}, \code{iters}, \code{converged}.
-#' }
-#' If multiple dams are requested (including \code{"all"}), returns an
-#' \code{HSMap.phased.multi}: a named list of \code{HSMap.phased} objects (one per dam).
+#' @return For a single dam, an \code{HSMap.phased} with (among others): \code{order};
+#' \code{clusters} (0/1 homolog labels, meaningful only within a component);
+#' \code{component} (component ID per marker); \code{phase_vec} (length
+#' \code{T-1}; 1=coupling, 0=repulsion for resolved adjacent intervals, \code{NA}
+#' for unresolved ones); \code{resolved_interval}; \code{direct_lod} (the \emph{raw}
+#' finite LOD of the adjacent \eqn{(t, t+1)} edge, \code{NA} if that edge is absent or
+#' non-finite -- reported even when it is below threshold, and NOT to be read as the
+#' total support for a path-derived phase); \code{direct_supported} (whether that
+#' adjacent edge passes the phase-present, finite-value, tie, and threshold rules);
+#' \code{resolved_via} (\code{"direct"} if the phase comes from the supported adjacent
+#' edge, \code{"path"} if it is derived through the component -- possibly with zero
+#' direct adjacent LOD -- or \code{"unresolved"}); \code{interval_support} (a
+#' compatibility alias of \code{direct_lod});
+#' \code{n_components}, \code{component_sizes}; \code{unresolved_markers},
+#' \code{unresolved_intervals}; \code{objective}, \code{component_objective},
+#' \code{converged}, \code{n_flips}. Multiple dams return an
+#' \code{HSMap.phased.multi} (a named list).
 #'
 #' @export
 phase_from_pairwise <- function(
     tpt,
     order,
-    dam = "all",
-    anchor_idx   = 1L,
-    anchor_label = 0L,
-    max_passes   = 50L,
-    tol          = 1e-9,
-    verbose      = FALSE
+    dam           = "all",
+    min_phase_lod = 0,
+    tie_tol       = 1e-8,
+    anchor_idx    = 1L,
+    anchor_label  = 0L,
+    max_passes    = 50L,
+    tol           = 1e-9,
+    verbose       = FALSE
 ) {
   if (!inherits(tpt, "HSMap.tpt")) stop("`tpt` must be HSMap.tpt.")
   if (!is.character(order) || !length(order))
     stop("`order` must be a non-empty character vector of marker IDs.")
+  if (!is.numeric(min_phase_lod) || length(min_phase_lod) != 1L ||
+      !is.finite(min_phase_lod) || min_phase_lod < 0)
+    stop("`min_phase_lod` must be a single finite, non-negative number.")
 
-  # available dams
   mom_list <- tpt$fit$mom_phase_list
   if (!is.list(mom_list) || !length(mom_list))
     stop("tpt$fit$mom_phase_list is missing or empty.")
   dam_names <- names(mom_list)
   if (is.null(dam_names)) dam_names <- paste0("Dam", seq_along(mom_list))
 
-  # resolve selection
-  sel <- if (identical(dam, "all")) {
-    dam_names
-  } else if (is.character(dam)) {
-    if (!all(dam %in% dam_names))
-      stop("Unknown dam(s): ", paste(setdiff(dam, dam_names), collapse = ", "))
-    dam
-  } else if (is.numeric(dam)) {
-    idx <- as.integer(dam)
-    if (any(idx < 1L | idx > length(dam_names)))
-      stop("Dam index out of range.")
-    dam_names[idx]
-  } else {
-    stop("`dam` must be 'all', dam name(s), or dam index/indices.")
+  # Per-dam LOD support (preferred); fall back to pooled lod_ph with a warning.
+  lod_list <- tpt$fit$lod_ph_list
+  use_pooled <- FALSE
+  if (!is.list(lod_list) || !length(lod_list)) {
+    if (!is.matrix(tpt$fit$lod_ph))
+      stop("tpt$fit needs `lod_ph_list` (per dam) or a pooled `lod_ph` matrix.")
+    warning("tpt$fit$lod_ph_list absent; falling back to the pooled lod_ph for every ",
+            "dam. Per-dam edge weights are preferred.", call. = FALSE)
+    use_pooled <- TRUE
   }
 
-  # common LOD (shared across dams in current HSMap.tpt)
-  LOD_all <- tpt$fit$lod_ph
-  if (!is.matrix(LOD_all)) stop("tpt$fit$lod_ph must be a matrix.")
+  sel <- if (identical(dam, "all")) dam_names
+    else if (is.character(dam)) {
+      if (!all(dam %in% dam_names)) stop("Unknown dam(s): ", paste(setdiff(dam, dam_names), collapse = ", "))
+      dam
+    } else if (is.numeric(dam)) {
+      idx <- as.integer(dam)
+      if (any(idx < 1L | idx > length(dam_names))) stop("Dam index out of range.")
+      dam_names[idx]
+    } else stop("`dam` must be 'all', dam name(s), or dam index/indices.")
 
-  # align to common names then subset to order
-  # helper to phase one dam
+  thr <- max(min_phase_lod, tie_tol)
+
   phase_one <- function(dam_label) {
     A_all <- mom_list[[dam_label]]
     if (!is.matrix(A_all)) stop("Phase matrix for dam '", dam_label, "' is not a matrix.")
+    L_all <- if (use_pooled) tpt$fit$lod_ph else lod_list[[dam_label]]
+    if (!is.matrix(L_all)) stop("LOD matrix for dam '", dam_label, "' is not a matrix.")
 
-    common <- intersect(rownames(A_all), rownames(LOD_all))
+    common <- intersect(rownames(A_all), rownames(L_all))
     if (length(common) < 2L) stop("Not enough common markers for dam '", dam_label, "'.")
-    A0   <- A_all[common, common, drop = FALSE]
-    LOD0 <- LOD_all[common, common, drop = FALSE]
-
     o <- intersect(order, common)
     if (!length(o)) stop("None of the SNPs in `order` are present for dam '", dam_label, "'.")
     if (length(o) < length(order)) {
-      missing <- setdiff(order, o)
-      warning("Dropped ", length(missing), " missing SNP(s) for dam '", dam_label,
-              "'. Example: ", paste(utils::head(missing, 5), collapse = ", "))
+      miss <- setdiff(order, o)
+      warning("Dropped ", length(miss), " missing SNP(s) for dam '", dam_label,
+              "'. Example: ", paste(utils::head(miss, 5), collapse = ", "), call. = FALSE)
     }
-    A   <- A0[o, o, drop = FALSE]
-    LOD <- LOD0[o, o, drop = FALSE]
+    A   <- A_all[o, o, drop = FALSE]
+    LOD <- L_all[o, o, drop = FALSE]
+    Tn  <- length(o)
 
-    Tn <- nrow(A)
-    if (Tn < 2) {
-      out <- list(dam = dam_label, order = o, clusters = integer(Tn),
-                  phase_vec = if (Tn) integer(Tn - 1L) else integer(0),
-                  objective = 0, weighted_agreement = NA_real_,
-                  iters = 0L, converged = TRUE)
-      class(out) <- "HSMap.phased"
-      return(out)
-    }
+    # Supported edges: phase sign present, finite LOD strictly above threshold.
+    Sup <- (!is.na(A)) & is.finite(LOD) & (LOD > thr)
+    diag(Sup) <- FALSE
+    Sup <- Sup | t(Sup)
 
-    # Signed matrix S from pairwise calls, weighted by LOD
+    # Signed, LOD-weighted graph on supported edges only.
     S <- matrix(0, Tn, Tn)
-    S[A >= 0.5 & !is.na(A)] <-  1
-    S[A <  0.5 & !is.na(A)] <- -1
-    W <- LOD; W[is.na(W)] <- 0
+    S[!is.na(A) & A >= 0.5] <-  1
+    S[!is.na(A) & A <  0.5] <- -1
+    W <- LOD; W[!is.finite(W)] <- 0
+    S[!Sup] <- 0; W[!Sup] <- 0
     diag(S) <- 0; diag(W) <- 0
-    S <- (S + t(S)) / 2
-    W <- (W + t(W)) / 2
-    J <- (S * W + t(S * W)) / 2
+    J <- (S * W); J <- (J + t(J)) / 2
 
-    # Degenerate: no information
-    if (all(J == 0)) {
-      clusters  <- integer(Tn)
-      phase_vec <- as.integer(rep(1L, Tn - 1L))
-      out <- list(dam = dam_label, order = o, clusters = clusters, phase_vec = phase_vec,
-                  objective = 0, weighted_agreement = NA_real_,
-                  iters = 0L, converged = TRUE)
-      class(out) <- "HSMap.phased"
-      return(out)
+    comp <- .pf_components(Sup)
+    x <- rep(1, Tn)
+    comp_obj <- numeric(0); comp_conv <- logical(0); tot_flips <- 0L; tot_iters <- 0L
+
+    for (cc in sort(unique(comp))) {
+      idx <- which(comp == cc)
+      if (length(idx) == 1L) { x[idx] <- 1; next }
+      Jc <- J[idx, idx, drop = FALSE]
+      if (all(Jc == 0)) { x[idx] <- 1; next }
+      ev <- eigen(Jc, symmetric = TRUE, only.values = FALSE)
+      xc <- ifelse(ev$vectors[, 1] >= 0, 1, -1)
+      gr <- .pf_greedy(Jc, xc, max_passes, tol)
+      xc <- gr$x
+      if (xc[1] != 1) xc <- -xc                       # anchor component's first marker to +1
+      x[idx] <- xc
+      comp_obj[as.character(cc)]  <- gr$objective
+      comp_conv[as.character(cc)] <- gr$converged
+      tot_flips <- tot_flips + gr$n_flips
+      tot_iters <- max(tot_iters, gr$iters)
+      if (isTRUE(verbose))
+        message("dam=", dam_label, " comp=", cc, " size=", length(idx),
+                " conv=", gr$converged, " flips=", gr$n_flips)
     }
 
-    # Spectral init
-    ev <- eigen(J, symmetric = TRUE, only.values = FALSE)
-    v1 <- ev$vectors[, 1]
-    x  <- ifelse(v1 >= 0, 1, -1)
-
-    # Anchor orientation
-    if (anchor_idx < 1L || anchor_idx > Tn)
-      stop("`anchor_idx` must be within 1..length(order).")
-    want_plus <- (anchor_label == 0L)
-    if ((x[anchor_idx] == 1) != want_plus) x <- -x
-
-    # Greedy coordinate ascent
-    improve <- TRUE; pass <- 0L
-    while (improve && pass < max_passes) {
-      pass <- pass + 1L
-      improve <- FALSE
-      g <- as.numeric(J %*% x)
-      for (iter in seq_len(5L * Tn)) {
-        delta <- -2 * x * g
-        best  <- which.max(delta)
-        if (length(best) == 0 || delta[best] <= tol) break
-        improve <- TRUE
-        x_old <- x[best]
-        x[best] <- -x_old
-        g <- g - 2 * x_old * J[, best]
+    # Global anchor: flip only the anchor's component so order[anchor_idx] == anchor_label.
+    if (anchor_idx >= 1L && anchor_idx <= Tn) {
+      want_plus <- (anchor_label == 0L)
+      if ((x[anchor_idx] == 1) != want_plus) {
+        ai <- which(comp == comp[anchor_idx]); x[ai] <- -x[ai]
       }
-      if (isTRUE(verbose)) message("dam=", dam_label, " pass=", pass, " improved=", improve)
     }
+    clusters <- ifelse(x == 1, 0L, 1L)
 
-    clusters  <- ifelse(x == 1, 0L, 1L)
-    phase_vec <- as.integer(clusters[-Tn] == clusters[-1])
+    # Intervals: resolved iff both markers share a component (path of supported edges).
+    resolved <- if (Tn >= 2) comp[-Tn] == comp[-1] else logical(0)
+    phase_vec <- if (Tn >= 2)
+      ifelse(resolved, as.integer(clusters[-Tn] == clusters[-1]), NA_integer_) else integer(0)
+    # Direct adjacent-edge phase LOD (the support of the (t, t+1) edge ITSELF), and
+    # whether that adjacent edge is a supported edge. An interval can be resolved
+    # INDIRECTLY (both markers in one component, via a longer path) even when the
+    # direct adjacent LOD is 0/absent: `resolved_via` distinguishes the two. Do not
+    # read a zero direct adjacent LOD as the total support for a path-resolved interval.
+    idx2 <- if (Tn >= 2) cbind(seq_len(Tn - 1L), seq_len(Tn - 1L) + 1L) else NULL
+    # direct_lod: the RAW LOD of the adjacent (t, t+1) edge (NA if non-finite/absent),
+    # reported even when below threshold. direct_supported: whether that edge passes
+    # the phase-present, finite-value, tie, and threshold rules. resolved_via records
+    # whether the interval is resolved by that direct edge, indirectly via a path in
+    # the component, or not at all.
+    direct_lod <- if (Tn >= 2) { s <- LOD[idx2]; s[!is.finite(s)] <- NA_real_; s } else numeric(0)
+    direct_supported <- if (Tn >= 2) as.logical(Sup[idx2]) else logical(0)
+    resolved_via <- if (Tn >= 2)
+      ifelse(!resolved, "unresolved", ifelse(direct_supported, "direct", "path")) else character(0)
 
-    # Agreement diagnostic
-    agree <- (S ==  1 & outer(clusters, clusters, "==")) |
-      (S == -1 & outer(clusters, clusters, "!="))
-    agree[is.na(agree)] <- TRUE
+    csz <- as.integer(table(comp))
+    unresolved_markers   <- o[comp %in% which(csz == 1L)]
+    unresolved_intervals <- if (Tn >= 2) which(!resolved) else integer(0)
+
+    if (!any(Sup))
+      warning("No supported phase edges for dam '", dam_label,
+              "': every marker is its own component and all intervals are unresolved. ",
+              "Phase is NOT resolved (not returned as all-coupling).", call. = FALSE)
+
+    agree <- (S == 1 & outer(clusters, clusters, "==")) |
+             (S == -1 & outer(clusters, clusters, "!="))
     num <- sum(W[upper.tri(W)] * agree[upper.tri(agree)])
     den <- sum(W[upper.tri(W)])
     w_agree <- if (den > 0) num / den else NA_real_
 
-    obj <- sum(J[upper.tri(J)] * (outer(x, x, "*")[upper.tri(J)]))
-
     out <- list(
-      dam        = dam_label,
-      order      = o,
-      clusters   = as.integer(clusters),
-      phase_vec  = as.integer(phase_vec),
-      objective  = obj,
+      dam                = dam_label,
+      order              = o,
+      clusters           = as.integer(clusters),
+      component          = as.integer(comp),
+      phase_vec          = as.integer(phase_vec),
+      resolved_interval  = resolved,
+      direct_lod         = direct_lod,        # raw finite LOD of the adjacent (t,t+1) edge (NA if absent)
+      direct_supported   = direct_supported,  # edge passes phase/finite/tie/threshold rules
+      resolved_via       = resolved_via,       # "direct" | "path" | "unresolved"
+      interval_support   = direct_lod,         # compatibility alias of direct_lod (raw adjacent LOD)
+      n_components       = length(unique(comp)),
+      component_sizes    = csz,
+      unresolved_markers = unresolved_markers,
+      unresolved_intervals = as.integer(unresolved_intervals),
+      objective          = if (length(comp_obj)) sum(comp_obj) else 0,
+      component_objective = comp_obj,
       weighted_agreement = w_agree,
-      iters      = pass,
-      converged  = !improve
+      iters              = tot_iters,
+      n_flips            = tot_flips,
+      converged          = if (length(comp_conv)) all(comp_conv) else TRUE,
+      min_phase_lod      = min_phase_lod,
+      fully_resolved     = (length(unique(comp)) == 1L)
     )
     class(out) <- "HSMap.phased"
     out
@@ -208,11 +234,45 @@ phase_from_pairwise <- function(
 
   res <- lapply(sel, phase_one)
   names(res) <- sel
+  if (length(res) == 1L) return(res[[1L]])
+  class(res) <- "HSMap.phased.multi"
+  res
+}
 
-  if (length(res) == 1L) {
-    return(res[[1L]])
-  } else {
-    class(res) <- "HSMap.phased.multi"
-    return(res)
+# ---- internal helpers -------------------------------------------------------
+
+# Connected components of a symmetric logical adjacency matrix (BFS/DFS).
+.pf_components <- function(Sup) {
+  n <- nrow(Sup); comp <- integer(n); cid <- 0L
+  for (s in seq_len(n)) {
+    if (comp[s] != 0L) next
+    cid <- cid + 1L
+    stack <- s
+    while (length(stack)) {
+      v <- stack[length(stack)]; stack <- stack[-length(stack)]
+      if (comp[v] != 0L) next
+      comp[v] <- cid
+      nb <- which(Sup[v, ] & comp == 0L)
+      if (length(nb)) stack <- c(stack, nb)
+    }
   }
+  comp
+}
+
+# Greedy coordinate ascent on the signed quadratic sum_{i<j} J[i,j] x_i x_j (x in +/-1).
+.pf_greedy <- function(J, x, max_passes, tol) {
+  Tn <- length(x); improve <- TRUE; pass <- 0L; nflips <- 0L
+  while (improve && pass < max_passes) {
+    pass <- pass + 1L; improve <- FALSE
+    g <- as.numeric(J %*% x)
+    for (iter in seq_len(5L * Tn)) {
+      delta <- -2 * x * g
+      best  <- which.max(delta)
+      if (!length(best) || delta[best] <= tol) break
+      improve <- TRUE; nflips <- nflips + 1L
+      xo <- x[best]; x[best] <- -xo; g <- g - 2 * xo * J[, best]
+    }
+  }
+  obj <- if (Tn >= 2) sum(J[upper.tri(J)] * outer(x, x)[upper.tri(J)]) else 0
+  list(x = x, objective = obj, converged = !improve, iters = pass, n_flips = nflips)
 }

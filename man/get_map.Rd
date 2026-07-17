@@ -4,7 +4,7 @@
 \alias{get_map}
 \title{Compute map positions for an HSMap.map}
 \usage{
-get_map(map, map.function = c("haldane", "kosambi", "morgan"))
+get_map(map, map.function = c("haldane", "kosambi", "morgan"), gap_r = 0.499)
 }
 \arguments{
 \item{map}{An object of class \code{HSMap.map} containing \code{map$fit$r} (vector of
