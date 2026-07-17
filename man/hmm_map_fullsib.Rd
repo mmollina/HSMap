@@ -14,6 +14,7 @@ hmm_map_fullsib(
   tol = 1e-06,
   maxit = 1000L,
   r_start = 0.1,
+  gap_r = 0.499,
   on_missing = c("error"),
   return_posterior = FALSE
 )
@@ -40,6 +41,10 @@ the selected crosses' genotype matrices.}
 \item{maxit}{Maximum EM iterations.}
 
 \item{r_start}{Initial recombination fraction for both maps.}
+
+\item{gap_r}{Recombination fraction at/above which an interval is reported as a
+no-linkage boundary (a gap): its map distance is \code{NA}, never a large finite
+value. Default \code{0.499}.}
 
 \item{on_missing}{One of \code{"error"} (default): stop on a missing required parent
 genotype at a fitted marker.}

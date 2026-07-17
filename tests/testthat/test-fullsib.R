@@ -231,3 +231,36 @@ test_that("20. results are deterministic with one thread", {
   expect_identical(as.numeric(a$fit$r_p), as.numeric(b$fit$r_p))
   expect_identical(a$fit$logLik, b$fit$logLik)
 })
+
+
+# ---- Commit 1: distances (inv_haldane) and gap behavior --------------------
+test_that("C1. full-sib d_m/d_p use inv_haldane on linked intervals", {
+  rm_t <- c(0.05,0.30,0.12,0.40,0.08); rp_t <- c(0.35,0.06,0.25,0.03,0.30)
+  sim <- sim_fullsib(n_markers=6, crosses=data.frame(mother="M1",father="S1",n=1500),
+                     r_m=rm_t, r_p=rp_t, epsilon=0.01, seed=77)
+  pm <- list(M1=sim$truth$parents[["M1"]]$phase_vec); pp <- list(S1=sim$truth$parents[["S1"]]$phase_vec)
+  fit <- hmm_map_fullsib(sim$data, phased_m=pm, phased_p=pp, epsilon=0.01, tol=1e-7, maxit=2000)
+  lm <- fit$fit$interval_status_m == "linked"; lp <- fit$fit$interval_status_p == "linked"
+  expect_equal(as.numeric(fit$fit$d_m)[lm], inv_haldane(as.numeric(fit$fit$r_m)[lm]), tolerance=1e-10)
+  expect_equal(as.numeric(fit$fit$d_p)[lp], inv_haldane(as.numeric(fit$fit$r_p)[lp]), tolerance=1e-10)
+  expect_true(all(fit$fit$interval_status_m %in% c("linked","no_linkage_boundary","insufficient_information")))
+  expect_true(all(fit$fit$interval_status_p %in% c("linked","no_linkage_boundary","insufficient_information")))
+})
+
+test_that("C1. r near 0.5 is a no-linkage gap (NA distance), not a finite linked interval", {
+  rep <- HSMap:::.fs_interval_report(c(0.1, 0.4999, 0.5, NA_real_), c(100,100,100,0), 0.499)
+  expect_identical(rep$status, c("linked","no_linkage_boundary","no_linkage_boundary","insufficient_information"))
+  expect_equal(rep$dist[1], inv_haldane(0.1))
+  expect_true(all(is.na(rep$dist[2:4])))                 # r ~ 0.5 never a huge finite cM
+})
+
+test_that("C1. OP-only mixed distances agree with the existing OP map reporter", {
+  so <- sim_fullsib(n_markers=8, crosses=data.frame(mother="D1",father=NA,n=500),
+                    r_const_m=0.12, op_paternal_pA=0.4, epsilon=0.02, seed=55)
+  pm <- list(D1=so$truth$parents[["D1"]]$phase_vec)
+  mx <- hmm_map_mixed(so$data, phased_m=pm, epsilon=0.05, lambda=20, tol=1e-6, maxit=1000,
+                      r_start=0.05, gap_r=0.499)
+  gm <- get_map(mx$op_result, "haldane", gap_r=0.499)
+  expect_equal(as.numeric(mx$fit$d_m), as.numeric(attr(gm, "dist_cM")), tolerance=1e-12)
+  expect_identical(unname(mx$fit$interval_status_m), unname(attr(gm, "status")))
+})

@@ -1,5 +1,20 @@
 # Known-sire full-sib mapping driver (oracle phase). See dev/known_sire_design.md.
 
+# Per-interval genetic distance and status for a sex-specific consensus map, mirroring
+# the OP block reporter: distance is inv_haldane(r) ONLY for a linked interval; an
+# interval with r at/above gap_r is a no_linkage_boundary (gap, distance NA), and one
+# with no informative meioses is insufficient_information (distance NA). r = 0.5 (no
+# linkage) is therefore never turned into a huge finite map distance.
+.fs_interval_report <- function(r, tot, gap_r) {
+  r <- as.numeric(r); Ti <- length(r)
+  status <- rep("linked", Ti)
+  bad_tot <- is.na(tot) | tot <= 0                 # Inf (dispatch sentinel) counts as ample data
+  status[bad_tot | is.na(r)] <- "insufficient_information"
+  status[status == "linked" & r >= gap_r] <- "no_linkage_boundary"
+  dist <- ifelse(status == "linked", inv_haldane(pmin(r, 0.5 - 1e-12)), NA_real_)
+  list(dist = dist, status = status)
+}
+
 # Build a cross's maternal/paternal 2xT allele matrices from parent genotypes and
 # oracle phase vectors, aligned to `order`. Errors on a missing required parent
 # genotype at a fitted marker (on_missing = "error").
@@ -57,6 +72,9 @@
 #' @param tol Convergence tolerance on the relative active objective and on \code{r}.
 #' @param maxit Maximum EM iterations.
 #' @param r_start Initial recombination fraction for both maps.
+#' @param gap_r Recombination fraction at/above which an interval is reported as a
+#'   no-linkage boundary (a gap): its map distance is \code{NA}, never a large finite
+#'   value. Default \code{0.499}.
 #' @param on_missing One of \code{"error"} (default): stop on a missing required parent
 #'   genotype at a fitted marker.
 #' @param return_posterior Logical; if \code{TRUE}, include per-cross posterior
@@ -66,7 +84,7 @@
 #' @export
 hmm_map_fullsib <- function(x, phased_m, phased_p, crosses = NULL, order = NULL,
                             epsilon = 0.05, tol = 1e-6, maxit = 1000L, r_start = 0.1,
-                            on_missing = c("error"), return_posterior = FALSE) {
+                            gap_r = 0.499, on_missing = c("error"), return_posterior = FALSE) {
   if (!inherits(x, "HSMap.data")) stop("`x` must be an HSMap.data object.")
   if (is.null(x$crosses)) stop("`x` lacks cross-aware fields; re-read with read_HSMap_data().")
   on_missing <- match.arg(on_missing)
@@ -117,9 +135,11 @@ hmm_map_fullsib <- function(x, phased_m, phased_p, crosses = NULL, order = NULL,
     if (it > 1L && rel < tol && dr < tol) { converged <- TRUE; conv_reason <- "relative_objective_and_params_stable"; prev_ll <- ll; break }
     prev_ll <- ll
   }
-  # final log-likelihood evaluated at the final parameters
-  final_ll <- 0
-  for (cid in fs_ids) { b <- built[[cid]]; final_ll <- final_ll + fs_loglik_cpp(b$G, b$Am, b$Ap, r_m, r_p, epsilon) }
+  # final E-step at the final parameters: log-likelihood + per-interval meiosis counts
+  final_ll <- 0; final_tot <- numeric(Ti)
+  for (cid in fs_ids) { b <- built[[cid]]
+    es <- fs_estep_cpp(b$G, b$Am, b$Ap, r_m, r_p, epsilon, FALSE)
+    final_ll <- final_ll + es$loglik; final_tot <- final_tot + es$total }
   if (obj_dec) { converged <- FALSE; conv_reason <- "objective_decreased" }
   if (!converged) {
     if (identical(conv_reason, "objective_decreased"))
@@ -138,10 +158,16 @@ hmm_map_fullsib <- function(x, phased_m, phased_p, crosses = NULL, order = NULL,
     names(post) <- fs_ids
   }
 
+  inm <- paste0(order[-z], "-", order[-1])
+  rep_m <- .fs_interval_report(r_m, final_tot, gap_r)
+  rep_p <- .fs_interval_report(r_p, final_tot, gap_r)
   fit <- list(
-    r_m = stats::setNames(r_m, paste0(order[-z], "-", order[-1])),
-    r_p = stats::setNames(r_p, paste0(order[-z], "-", order[-1])),
-    d_m = haldane(r_m), d_p = haldane(r_p),
+    r_m = stats::setNames(r_m, inm),
+    r_p = stats::setNames(r_p, inm),
+    d_m = stats::setNames(rep_m$dist, inm), d_p = stats::setNames(rep_p$dist, inm),
+    interval_status_m = stats::setNames(rep_m$status, inm),
+    interval_status_p = stats::setNames(rep_p$status, inm),
+    gap_r = gap_r, meiosis_count = stats::setNames(final_tot, inm),
     logLik = final_ll, objective = final_ll,
     converged = converged, conv_reason = conv_reason, iters = it,
     objective_decreased = obj_dec, loglik_trace = ll_trace,
@@ -194,6 +220,8 @@ hmm_map_fullsib <- function(x, phased_m, phased_p, crosses = NULL, order = NULL,
 #' @param epsilon,tol,maxit,r_start As in \code{hmm_map_fullsib}.
 #' @param lambda,q0 OP paternal-\code{q} pseudocount total and shrinkage target
 #'   (MAP update), matching \code{hmm_map}.
+#' @param gap_r Recombination fraction at/above which an interval is a no-linkage
+#'   boundary (gap): map distance \code{NA}. Default \code{0.499}.
 #' @param untyped_sire How to treat \code{known_sire_untyped} crosses: \code{"error"}
 #'   (default) stop; \code{"open_pollinated"} model them with the OP model (reported).
 #' @param on_missing \code{"error"} (default) on a missing required parent genotype.
@@ -203,7 +231,7 @@ hmm_map_fullsib <- function(x, phased_m, phased_p, crosses = NULL, order = NULL,
 #' @export
 hmm_map_mixed <- function(x, phased_m, phased_p = NULL, order = NULL,
                           epsilon = 0.05, lambda = 20, q0 = 0.5, tol = 1e-6,
-                          maxit = 1000L, r_start = 0.1,
+                          maxit = 1000L, r_start = 0.1, gap_r = 0.499,
                           untyped_sire = c("error", "open_pollinated"),
                           on_missing = c("error"), return_posterior = FALSE) {
   if (!inherits(x, "HSMap.data")) stop("`x` must be an HSMap.data object.")
@@ -244,8 +272,13 @@ hmm_map_mixed <- function(x, phased_m, phased_p = NULL, order = NULL,
                      lambda = lambda, maxit = maxit, r_start = r_start, method = "joint")
     }
     rfit <- res$fit
+    inm <- paste0(order[-z], "-", order[-1])
+    rep_m <- .fs_interval_report(as.numeric(rfit$r), rep(Inf, Ti), gap_r)  # OP r already fitted
     out <- list(order = order, fit = list(
-      r_m = rfit$r, r_p = NULL, d_m = haldane(as.numeric(rfit$r)), d_p = NULL,
+      r_m = rfit$r, r_p = NULL,
+      d_m = stats::setNames(rep_m$dist, inm), d_p = NULL,
+      interval_status_m = stats::setNames(rep_m$status, inm), interval_status_p = NULL,
+      gap_r = gap_r,
       logLik = rfit$logLik, objective = rfit$objective %||% rfit$penalized_obj,
       converged = rfit$converged, conv_reason = rfit$conv_reason, iters = rfit$iters,
       objective_decreased = rfit$objective_decreased %||% FALSE,
@@ -313,10 +346,15 @@ hmm_map_mixed <- function(x, phased_m, phased_p = NULL, order = NULL,
       converged <- TRUE; conv_reason <- "relative_objective_and_params_stable"; prev_obj <- obj; break }
     prev_obj <- obj
   }
-  # final observed log-likelihood at final parameters
-  final_ll <- 0
-  for (cid in fs_ids) { b <- fs_built[[cid]]; final_ll <- final_ll + fs_loglik_cpp(b$G, b$Am, b$Ap, r_m, r_p, epsilon) }
-  for (cid in op_ids) { b <- op_built[[cid]]; final_ll <- final_ll + op_estep_cpp(b$G, b$Am, r_m, q_list[[b$mother]], epsilon)$loglik }
+  # final E-step at the final parameters: log-likelihood + per-interval meiosis counts
+  # (maternal total pools OP + full-sib; paternal total is full-sib only).
+  final_ll <- 0; final_m_tot <- numeric(Ti); final_p_tot <- numeric(Ti)
+  for (cid in fs_ids) { b <- fs_built[[cid]]
+    es <- fs_estep_cpp(b$G, b$Am, b$Ap, r_m, r_p, epsilon, FALSE)
+    final_ll <- final_ll + es$loglik; final_m_tot <- final_m_tot + es$total; final_p_tot <- final_p_tot + es$total }
+  for (cid in op_ids) { b <- op_built[[cid]]
+    es <- op_estep_cpp(b$G, b$Am, r_m, q_list[[b$mother]], epsilon)
+    final_ll <- final_ll + es$loglik; final_m_tot <- final_m_tot + es$total }
   if (obj_dec) { converged <- FALSE; conv_reason <- "objective_decreased" }
   if (!converged) {
     if (identical(conv_reason, "objective_decreased"))
@@ -335,10 +373,18 @@ hmm_map_mixed <- function(x, phased_m, phased_p = NULL, order = NULL,
   }
   moms <- unique(c(vapply(fs_ids, function(cid) cx[[cid]]$mother_id, character(1)), dams_op))
   sires <- unique(vapply(fs_ids, function(cid) cx[[cid]]$father_id, character(1)))
+  inm <- paste0(order[-z], "-", order[-1])
+  rep_m <- .fs_interval_report(r_m, final_m_tot, gap_r)
+  rep_p <- .fs_interval_report(r_p, final_p_tot, gap_r)
   fit <- list(
-    r_m = stats::setNames(r_m, paste0(order[-z], "-", order[-1])),
-    r_p = stats::setNames(r_p, paste0(order[-z], "-", order[-1])),
-    d_m = haldane(r_m), d_p = haldane(r_p),
+    r_m = stats::setNames(r_m, inm),
+    r_p = stats::setNames(r_p, inm),
+    d_m = stats::setNames(rep_m$dist, inm), d_p = stats::setNames(rep_p$dist, inm),
+    interval_status_m = stats::setNames(rep_m$status, inm),
+    interval_status_p = stats::setNames(rep_p$status, inm),
+    gap_r = gap_r,
+    meiosis_count_m = stats::setNames(final_m_tot, inm),
+    meiosis_count_p = stats::setNames(final_p_tot, inm),
     logLik = final_ll, objective = prev_obj,
     converged = converged, conv_reason = conv_reason, iters = it,
     objective_decreased = obj_dec, objective_trace = obj_trace,

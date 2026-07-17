@@ -15,6 +15,7 @@ hmm_map_mixed(
   tol = 1e-06,
   maxit = 1000L,
   r_start = 0.1,
+  gap_r = 0.499,
   untyped_sire = c("error", "open_pollinated"),
   on_missing = c("error"),
   return_posterior = FALSE
@@ -34,6 +35,9 @@ full-sib cross is fitted).}
 
 \item{lambda, q0}{OP paternal-\code{q} pseudocount total and shrinkage target
 (MAP update), matching \code{hmm_map}.}
+
+\item{gap_r}{Recombination fraction at/above which an interval is a no-linkage
+boundary (gap): map distance \code{NA}. Default \code{0.499}.}
 
 \item{untyped_sire}{How to treat \code{known_sire_untyped} crosses: \code{"error"}
 (default) stop; \code{"open_pollinated"} model them with the OP model (reported).}
