@@ -174,6 +174,24 @@ convergence requires the relative active-objective change `< tol` **and**
 `max|Δr_m|, max|Δr_p| (, max|Δq|) < tol`, matching the OP engine's contract. The final
 returned log-likelihood is evaluated at the final parameters.
 
+## 6a. Identifiability and information diagnostics
+
+Before automatic phase inference, the fit reports per-interval identifiability. A
+parent's transmission is **structurally informative** at interval `k` only when that
+parent is heterozygous at both flanking markers `k` and `k+1`; a homozygous flanking
+marker makes the transmitted homolog indistinguishable there. The maternal and paternal
+**labels are non-identifiable (exchangeable)** when every cross has identical maternal
+and paternal haplotypes, because offspring dosage is symmetric in the two parents and
+swapping `(r_m, r_p)` leaves the likelihood invariant.
+
+`$fit$identifiability` gives, per interval: contributing offspring, `maternal_informative`,
+`paternal_informative`, `exchangeable`, and per-parent `status`. Rather than forcing a
+per-parent estimate where the likelihood cannot support it, a structurally uninformative
+interval is reported as `insufficient_information` (distance `NA`), and under global
+exchangeability the doubly-informative intervals are reported as
+`nonidentifiable_exchangeable` (distance `NA`), with `$fit$identifiable_labels = FALSE`.
+This diagnostic is a prerequisite for designing the full-sib two-point estimator.
+
 ## 7. Missing-data behavior
 
 - **Missing offspring genotype** at a marker → emission `= 1` (neutral); the marker is

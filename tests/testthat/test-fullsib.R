@@ -414,3 +414,86 @@ test_that("C4. mixed pooling: maternal counts include OP, paternal only full-sib
   expect_setequal(fit$maternal_crosses, c("M1__x__S1","D1"))
   expect_setequal(fit$paternal_crosses, "M1__x__S1")
 })
+
+
+# ---- Commit 5: identifiability and information diagnostics ------------------
+# Build a one-cross HSMap.data directly from explicit parental haplotypes.
+.mk_fs_data <- function(Hm, Hp, rm, rp, n, seed) {
+  set.seed(seed); z <- ncol(Hm); ord <- sprintf("M%04d", 1:z)
+  meio <- function(r) { P <- matrix(0L, n, z); P[, 1] <- sample(1:2, n, TRUE)
+    for (k in 2:z) { sw <- rbinom(n, 1, r[k-1]) == 1; P[, k] <- ifelse(sw, 3L - P[, k-1], P[, k-1]) }; P }
+  Pm <- meio(rm); Pp <- meio(rp)
+  ma <- sapply(1:z, function(k) Hm[cbind(Pm[, k], k)]); pa <- sapply(1:z, function(k) Hp[cbind(Pp[, k], k)])
+  G <- ma + pa; storage.mode(G) <- "integer"; rownames(G) <- sprintf("o%03d", 1:n); colnames(G) <- ord
+  gm <- as.integer(Hm[1, ] + Hm[2, ]); gf <- as.integer(Hp[1, ] + Hp[2, ]); names(gm) <- names(gf) <- ord
+  cr <- list("M1__x__S1" = list(cross_id="M1__x__S1", mother_id="M1", father_id="S1",
+             family_type="known_sire_genotyped", offspring=rownames(G), M=gm, F=gf, G=G))
+  dat <- list(G_list=list("M1__x__S1"=G), M_list=list("M1__x__S1"=gm),
+    alleles=data.frame(marker_id=ord, REF="A", ALT="B", chrom=1L, position=1:z, stringsAsFactors=FALSE),
+    pedigree=NULL,
+    cross_table=data.frame(cross_id="M1__x__S1", mother_id="M1", father_id="S1",
+      family_type="known_sire_genotyped", n_offspring=n, mother_genotyped=TRUE,
+      father_genotyped=TRUE, stringsAsFactors=FALSE),
+    crosses=cr, parent_genotypes=list(M1=gm, S1=gf), F_list=list("M1__x__S1"=gf))
+  class(dat) <- "HSMap.data"
+  list(data=dat, Hm=`colnames<-`(Hm, ord), Hp=`colnames<-`(Hp, ord), ord=ord)
+}
+
+test_that("C5. structural informativeness and exchangeability are detected", {
+  Am <- matrix(c(1L,0L, 0L,1L, 1L,0L, 0L,1L), 2, 4)   # mother het at all markers
+  built_matmaonly <- list(list(Am=Am, Ap=matrix(1L,2,4), G=matrix(0L,10,4)))  # sire AA -> uninformative
+  i1 <- HSMap:::.fs_informativeness(built_matmaonly, built_matmaonly, 3L)
+  expect_true(all(i1$mat_inf)); expect_true(all(!i1$pat_inf)); expect_false(i1$globally_exchangeable)
+  built_exch <- list(list(Am=Am, Ap=Am, G=matrix(0L,10,4)))     # identical parents
+  i2 <- HSMap:::.fs_informativeness(built_exch, built_exch, 3L)
+  expect_true(i2$globally_exchangeable)
+})
+
+test_that("C5. only-maternal-informative: paternal intervals flagged, not forced", {
+  Hm <- matrix(c(1L,0L, 1L,0L, 0L,1L, 1L,0L, 0L,1L, 1L,0L), 2, 6)  # mother het everywhere
+  Hp <- matrix(1L, 2, 6)                                            # sire AA everywhere
+  d <- .mk_fs_data(Hm, Hp, rep(0.1,5), rep(0.1,5), 1500, 11)
+  fit <- hmm_map_fullsib(d$data, haplotypes_m=list(M1=d$Hm), haplotypes_p=list(S1=d$Hp),
+                         epsilon=0.01, tol=1e-6, maxit=1000)
+  expect_true(all(fit$fit$interval_status_p == "insufficient_information"))
+  expect_true(all(is.na(fit$fit$d_p)))                             # not forced into a distance
+  expect_false(any(fit$fit$identifiability$paternal_informative))
+  expect_true(all(fit$fit$identifiability$maternal_informative))
+})
+
+test_that("C5. exchangeable parents: non-identifiable labels and symmetric likelihood", {
+  H <- matrix(c(1L,0L, 0L,1L, 1L,0L, 0L,1L, 1L,0L), 2, 5)          # identical mother & sire
+  d <- .mk_fs_data(H, H, rep(0.1,4), rep(0.3,4), 1200, 22)
+  fit <- hmm_map_fullsib(d$data, haplotypes_m=list(M1=d$Hm), haplotypes_p=list(S1=d$Hp),
+                         epsilon=0.01, tol=1e-6, maxit=1000)
+  expect_false(fit$fit$identifiable_labels)
+  expect_true(all(fit$fit$interval_status_m == "nonidentifiable_exchangeable"))
+  # likelihood is symmetric under r_m <-> r_p (labels not identifiable)
+  cr <- d$data$crosses[["M1__x__S1"]]
+  rmv <- c(0.05,0.2,0.1,0.4); rpv <- c(0.3,0.15,0.25,0.05)
+  ll1 <- fs_loglik_cpp(cr$G, matrix(as.integer(d$Hm),2), matrix(as.integer(d$Hp),2), rmv, rpv, 0.01)
+  ll2 <- fs_loglik_cpp(cr$G, matrix(as.integer(d$Hm),2), matrix(as.integer(d$Hp),2), rpv, rmv, 0.01)
+  expect_equal(ll1, ll2, tolerance=1e-9)
+})
+
+test_that("C5. distinguishable maps: unique optimum on the (r_m, r_p) grid + start-insensitive", {
+  Hm <- matrix(c(1L,0L, 0L,1L, 1L,0L),2,3); Hp <- matrix(c(1L,0L, 1L,0L, 0L,1L),2,3)  # distinct phase
+  d <- .mk_fs_data(Hm, Hp, c(0.08,0.35), c(0.40,0.08), 3000, 33)
+  cr <- d$data$crosses[["M1__x__S1"]]; AM <- matrix(as.integer(d$Hm),2); AP <- matrix(as.integer(d$Hp),2)
+  grid <- seq(0.01, 0.49, by=0.02)
+  # first interval: profile ll over (rm, rp) with the 2nd interval at a fixed near-truth value
+  best <- c(NA,NA); bestll <- -Inf
+  for (a in grid) for (b in grid) {
+    ll <- fs_loglik_cpp(cr$G, AM, AP, c(a,0.35), c(b,0.08), 0.01)
+    if (ll > bestll) { bestll <- ll; best <- c(a,b) }
+  }
+  expect_lt(abs(best[1] - 0.08), 0.05)      # maternal r_1 optimum near truth 0.08
+  expect_lt(abs(best[2] - 0.40), 0.06)      # paternal r_1 optimum near truth 0.40
+  expect_gt(abs(best[1] - best[2]), 0.15)   # clearly distinct -> not exchangeable
+  # start-insensitive convergence
+  f1 <- hmm_map_fullsib(d$data, haplotypes_m=list(M1=d$Hm), haplotypes_p=list(S1=d$Hp), r_start=0.05, tol=1e-7)
+  f2 <- hmm_map_fullsib(d$data, haplotypes_m=list(M1=d$Hm), haplotypes_p=list(S1=d$Hp), r_start=0.45, tol=1e-7)
+  expect_equal(as.numeric(f1$fit$r_m), as.numeric(f2$fit$r_m), tolerance=1e-4)
+  expect_equal(as.numeric(f1$fit$r_p), as.numeric(f2$fit$r_p), tolerance=1e-4)
+  expect_true(f1$fit$identifiable_labels)
+})

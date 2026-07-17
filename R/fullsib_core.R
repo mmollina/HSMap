@@ -15,6 +15,39 @@
   list(dist = dist, status = status)
 }
 
+# Per-interval structural informativeness of the maternal and paternal chains, and a
+# global label-exchangeability flag. A parent's transmission is informative at interval k
+# only if that parent is HETEROZYGOUS at both markers k and k+1 (a homozygous flanking
+# marker makes the transmitted homolog indistinguishable). Maternal and paternal labels
+# are non-identifiable (exchangeable) when every cross has identical maternal and paternal
+# haplotypes, so swapping (r_m, r_p) leaves the likelihood invariant.
+.fs_informativeness <- function(mat_builts, pat_builts, Ti) {
+  mat_inf <- logical(Ti); pat_inf <- logical(Ti); n_off <- integer(Ti)
+  het <- function(A) A[1, ] != A[2, ]
+  for (b in mat_builts) {
+    mh <- het(b$Am); nk <- nrow(b$G)
+    for (k in seq_len(Ti)) { n_off[k] <- n_off[k] + nk; if (mh[k] && mh[k + 1L]) mat_inf[k] <- TRUE }
+  }
+  for (b in pat_builts) {
+    ph <- het(b$Ap)
+    for (k in seq_len(Ti)) if (ph[k] && ph[k + 1L]) pat_inf[k] <- TRUE
+  }
+  exch <- length(pat_builts) > 0L && length(mat_builts) == length(pat_builts) &&
+    all(vapply(pat_builts, function(b) !is.null(b$Ap) && identical(b$Am, b$Ap), logical(1)))
+  list(n_off = n_off, mat_inf = mat_inf, pat_inf = pat_inf, globally_exchangeable = exch)
+}
+
+# Overlay structural informativeness / exchangeability onto an r/gap interval report:
+# a structurally uninformative interval becomes insufficient_information (NA distance);
+# under global exchangeability the doubly-informative intervals become
+# nonidentifiable_exchangeable (NA distance) rather than forcing a per-parent estimate.
+.fs_apply_informativeness <- function(rep, informative, exch, both_inf) {
+  rep$status[!informative] <- "insufficient_information"
+  rep$dist[!informative] <- NA_real_
+  if (isTRUE(exch)) { rep$status[both_inf] <- "nonidentifiable_exchangeable"; rep$dist[both_inf] <- NA_real_ }
+  rep
+}
+
 # Shared numerical-argument validation for the full-sib / mixed fitters.
 .fs_validate_inputs <- function(epsilon, tol, maxit, r_start, lambda = NULL, q0 = NULL) {
   num1 <- function(v) is.numeric(v) && length(v) == 1L && !is.na(v)
@@ -232,14 +265,22 @@ hmm_map_fullsib <- function(x, phased_m = NULL, phased_p = NULL,
     names(post) <- fs_ids
   }
 
-  rep_m <- .fs_interval_report(r_m, final_tot, gap_r)
-  rep_p <- .fs_interval_report(r_p, final_tot, gap_r)
+  info <- .fs_informativeness(built, built, Ti)
+  both_inf <- info$mat_inf & info$pat_inf
+  rep_m <- .fs_apply_informativeness(.fs_interval_report(r_m, final_tot, gap_r), info$mat_inf, info$globally_exchangeable, both_inf)
+  rep_p <- .fs_apply_informativeness(.fs_interval_report(r_p, final_tot, gap_r), info$pat_inf, info$globally_exchangeable, both_inf)
+  ident_tab <- data.frame(
+    interval = inm, n_offspring = info$n_off,
+    maternal_informative = info$mat_inf, paternal_informative = info$pat_inf,
+    exchangeable = info$globally_exchangeable & both_inf,
+    status_m = rep_m$status, status_p = rep_p$status, stringsAsFactors = FALSE)
   fit <- list(
     r_m = stats::setNames(r_m, inm),
     r_p = stats::setNames(r_p, inm),
     d_m = stats::setNames(rep_m$dist, inm), d_p = stats::setNames(rep_p$dist, inm),
     interval_status_m = stats::setNames(rep_m$status, inm),
     interval_status_p = stats::setNames(rep_p$status, inm),
+    identifiability = ident_tab, identifiable_labels = !info$globally_exchangeable,
     gap_r = gap_r, meiosis_count = stats::setNames(final_tot, inm),
     # sex-specific CONSENSUS maps: r_m pools all maternal meioses across mothers, r_p
     # pools all paternal meioses across genotyped sires. These are NOT parent-specific
@@ -487,14 +528,22 @@ hmm_map_mixed <- function(x, phased_m = NULL, phased_p = NULL,
     post <- lapply(fs_ids, function(cid) { b <- fs_built[[cid]]
       fs_estep_cpp(b$G, b$Am, b$Ap, r_m, r_p, epsilon, TRUE)$gamma }); names(post) <- fs_ids
   }
-  rep_m <- .fs_interval_report(r_m, final_m_tot, gap_r)
-  rep_p <- .fs_interval_report(r_p, final_p_tot, gap_r)
+  info <- .fs_informativeness(c(fs_built, op_built), fs_built, Ti)
+  both_inf <- info$mat_inf & info$pat_inf
+  rep_m <- .fs_apply_informativeness(.fs_interval_report(r_m, final_m_tot, gap_r), info$mat_inf, info$globally_exchangeable, both_inf)
+  rep_p <- .fs_apply_informativeness(.fs_interval_report(r_p, final_p_tot, gap_r), info$pat_inf, info$globally_exchangeable, both_inf)
+  ident_tab <- data.frame(
+    interval = inm, n_offspring = info$n_off,
+    maternal_informative = info$mat_inf, paternal_informative = info$pat_inf,
+    exchangeable = info$globally_exchangeable & both_inf,
+    status_m = rep_m$status, status_p = rep_p$status, stringsAsFactors = FALSE)
   fit <- list(
     r_m = stats::setNames(r_m, inm),
     r_p = stats::setNames(r_p, inm),
     d_m = stats::setNames(rep_m$dist, inm), d_p = stats::setNames(rep_p$dist, inm),
     interval_status_m = stats::setNames(rep_m$status, inm),
     interval_status_p = stats::setNames(rep_p$status, inm),
+    identifiability = ident_tab, identifiable_labels = !info$globally_exchangeable,
     gap_r = gap_r,
     meiosis_count_m = stats::setNames(final_m_tot, inm),
     meiosis_count_p = stats::setNames(final_p_tot, inm),
