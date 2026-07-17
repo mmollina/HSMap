@@ -121,6 +121,15 @@ hmm_map_fullsib <- function(x, phased_m, phased_p, crosses = NULL, order = NULL,
   final_ll <- 0
   for (cid in fs_ids) { b <- built[[cid]]; final_ll <- final_ll + fs_loglik_cpp(b$G, b$Am, b$Ap, r_m, r_p, epsilon) }
   if (obj_dec) { converged <- FALSE; conv_reason <- "objective_decreased" }
+  if (!converged) {
+    if (identical(conv_reason, "objective_decreased"))
+      warning("hmm_map_fullsib(): the active EM objective decreased materially; ",
+              "results may be unreliable.", call. = FALSE)
+    else
+      warning("hmm_map_fullsib(): EM did not converge in ", it, " iterations; the ",
+              "returned estimates are the last iterate. Increase `maxit` or relax `tol`.",
+              call. = FALSE)
+  }
 
   post <- NULL
   if (isTRUE(return_posterior)) {
@@ -309,6 +318,15 @@ hmm_map_mixed <- function(x, phased_m, phased_p = NULL, order = NULL,
   for (cid in fs_ids) { b <- fs_built[[cid]]; final_ll <- final_ll + fs_loglik_cpp(b$G, b$Am, b$Ap, r_m, r_p, epsilon) }
   for (cid in op_ids) { b <- op_built[[cid]]; final_ll <- final_ll + op_estep_cpp(b$G, b$Am, r_m, q_list[[b$mother]], epsilon)$loglik }
   if (obj_dec) { converged <- FALSE; conv_reason <- "objective_decreased" }
+  if (!converged) {
+    if (identical(conv_reason, "objective_decreased"))
+      warning("hmm_map_mixed(): the active EM objective decreased materially; ",
+              "results may be unreliable.", call. = FALSE)
+    else
+      warning("hmm_map_mixed(): EM did not converge in ", it, " iterations; the ",
+              "returned estimates are the last iterate. Increase `maxit` or relax `tol`.",
+              call. = FALSE)
+  }
 
   post <- NULL
   if (isTRUE(return_posterior)) {
