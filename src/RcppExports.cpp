@@ -87,6 +87,20 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// pf_greedy_cpp
+List pf_greedy_cpp(NumericMatrix J, IntegerVector x_init, int max_passes, double tol);
+RcppExport SEXP _HSMap_pf_greedy_cpp(SEXP JSEXP, SEXP x_initSEXP, SEXP max_passesSEXP, SEXP tolSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type J(JSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type x_init(x_initSEXP);
+    Rcpp::traits::input_parameter< int >::type max_passes(max_passesSEXP);
+    Rcpp::traits::input_parameter< double >::type tol(tolSEXP);
+    rcpp_result_gen = Rcpp::wrap(pf_greedy_cpp(J, x_init, max_passes, tol));
+    return rcpp_result_gen;
+END_RCPP
+}
 // simulate_offspring_cpp
 Rcpp::List simulate_offspring_cpp(Rcpp::IntegerVector M, Rcpp::NumericMatrix pi_true, Rcpp::NumericVector r_true, int n_offspring, double error_rate, bool keep_paths, Rcpp::Nullable<Rcpp::IntegerVector> z_phase_in);
 RcppExport SEXP _HSMap_simulate_offspring_cpp(SEXP MSEXP, SEXP pi_trueSEXP, SEXP r_trueSEXP, SEXP n_offspringSEXP, SEXP error_rateSEXP, SEXP keep_pathsSEXP, SEXP z_phase_inSEXP) {
@@ -130,6 +144,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_HSMap_gamma_cpp", (DL_FUNC) &_HSMap_gamma_cpp, 6},
     {"_HSMap_hmm_hs_joint_cpp", (DL_FUNC) &_HSMap_hmm_hs_joint_cpp, 12},
     {"_HSMap_loglik_hs_cpp", (DL_FUNC) &_HSMap_loglik_hs_cpp, 6},
+    {"_HSMap_pf_greedy_cpp", (DL_FUNC) &_HSMap_pf_greedy_cpp, 4},
     {"_HSMap_simulate_offspring_cpp", (DL_FUNC) &_HSMap_simulate_offspring_cpp, 7},
     {"_HSMap_pairwise_rf_estimation_multi_parallel_cpp", (DL_FUNC) &_HSMap_pairwise_rf_estimation_multi_parallel_cpp, 10},
     {NULL, NULL, 0}

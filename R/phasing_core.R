@@ -145,9 +145,9 @@ phase_from_pairwise <- function(
       if (length(idx) == 1L) { x[idx] <- 1; next }
       Jc <- J[idx, idx, drop = FALSE]
       if (all(Jc == 0)) { x[idx] <- 1; next }
-      ev <- eigen(Jc, symmetric = TRUE, only.values = FALSE)
-      xc <- ifelse(ev$vectors[, 1] >= 0, 1, -1)
-      gr <- .pf_greedy(Jc, xc, max_passes, tol)
+      v1 <- .pf_leading_eigvec(Jc)
+      xc <- ifelse(v1 >= 0, 1, -1)
+      gr <- pf_greedy_cpp(Jc, as.integer(xc), max_passes, tol)
       xc <- gr$x
       if (xc[1] != 1) xc <- -xc                       # anchor component's first marker to +1
       x[idx] <- xc
@@ -259,7 +259,33 @@ phase_from_pairwise <- function(
   comp
 }
 
+# Leading (largest-algebraic) eigenvector of a component's signed graph, used only to
+# seed the greedy ascent. Only this one eigenvector is needed, so for components large
+# enough to benefit we use RSpectra::eigs_sym() (a partial solver) instead of a full
+# eigen() decomposition. Base eigen() is the fallback for small components, when
+# RSpectra is unavailable, or if the iterative solver fails. The sign is fixed
+# deterministically (largest-magnitude entry made non-negative); note that a global sign
+# flip of a whole component is an equivalent phase solution and leaves phase_vec
+# unchanged, so this only pins the raw cluster labels for reproducibility.
+.pf_leading_eigvec <- function(Jc) {
+  n <- nrow(Jc)
+  v <- NULL
+  if (n >= 8L && requireNamespace("RSpectra", quietly = TRUE)) {
+    v <- tryCatch({
+      e <- RSpectra::eigs_sym(Jc, k = 1L, which = "LA")
+      vv <- if (!is.null(e$vectors) && NCOL(e$vectors) >= 1L) e$vectors[, 1] else NULL
+      if (is.null(vv) || length(vv) != n || anyNA(vv)) NULL else vv
+    }, error = function(err) NULL)
+  }
+  if (is.null(v)) v <- eigen(Jc, symmetric = TRUE, only.values = FALSE)$vectors[, 1]
+  k <- which.max(abs(v))
+  if (length(k) && is.finite(v[k]) && v[k] < 0) v <- -v
+  v
+}
+
 # Greedy coordinate ascent on the signed quadratic sum_{i<j} J[i,j] x_i x_j (x in +/-1).
+# R REFERENCE implementation, retained for tests only; the normal workflow uses the
+# equivalent C++ pf_greedy_cpp() (same objective and best-improvement rule).
 .pf_greedy <- function(J, x, max_passes, tol) {
   Tn <- length(x); improve <- TRUE; pass <- 0L; nflips <- 0L
   while (improve && pass < max_passes) {
