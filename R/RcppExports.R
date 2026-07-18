@@ -17,6 +17,12 @@ loglik_hs_cpp <- function(G, M, phase_vec, r, pi_emis, epsilon = 1e-3) {
     .Call(`_HSMap_loglik_hs_cpp`, G, M, phase_vec, r, pi_emis, epsilon)
 }
 
+#' Greedy coordinate ascent for the signed phase graph (internal)
+#' @keywords internal
+pf_greedy_cpp <- function(J, x_init, max_passes, tol) {
+    .Call(`_HSMap_pf_greedy_cpp`, J, x_init, max_passes, tol)
+}
+
 simulate_offspring_cpp <- function(M, pi_true, r_true, n_offspring, error_rate = 0.0, keep_paths = FALSE, z_phase_in = NULL) {
     .Call(`_HSMap_simulate_offspring_cpp`, M, pi_true, r_true, n_offspring, error_rate, keep_paths, z_phase_in)
 }
