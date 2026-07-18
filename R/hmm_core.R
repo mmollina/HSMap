@@ -9,7 +9,7 @@
 #' interval is also computed across the selected dams (see *Consensus r*).
 #'
 #' @param x An \code{HSMap.data} object containing \code{G_list} and \code{M_list}.
-#' @param phased An object (e.g., from \code{hsmap_phase_from_pairwise}) with
+#' @param phased An object (e.g., from \code{phase_from_pairwise}) with
 #'   fields \code{order} and \code{phase_vec}. It can represent one dam
 #'   (\code{HSMap.phased}) or multiple dams (\code{HSMap.phased.multi}).
 #' @param dam Which dam(s) to fit. One of:

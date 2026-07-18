@@ -6,7 +6,7 @@
 #' Parents (mothers, then sires if present) are placed first, followed by all offspring.
 #' Genotypes are **doses** \code{0/1/2/NA}.
 #'
-#' @param sim Object returned by \code{sim_multi_pop()} or \code{sim_multi_genome()}.
+#' @param sim Object returned by \code{sim_multi_pop()} or \code{sim_multi_chrom()}.
 #' @param file Optional path. If provided, the table is written as CSV (UTF-8).
 #' @param base_levels Character vector from \code{c("A","C","G","T")}.
 #'   Used to randomly assign \code{REF} and \code{ALT}; ALT is sampled from
@@ -117,7 +117,7 @@ write_sim_genotypes <- function(sim, file = NULL,
 #' Creates a simple pedigree \code{data.frame} (and optionally writes it to disk as CSV)
 #' from a \code{"sim_multi_pop"} object: one row per individual with IDs and parents.
 #'
-#' @param sim Object returned by \code{sim_multi_pop()} or \code{sim_multi_genome()}.
+#' @param sim Object returned by \code{sim_multi_pop()} or \code{sim_multi_chrom()}.
 #' @param file Optional path. If provided, the table is written as CSV (UTF-8).
 #'
 #' @return A data.frame with columns:

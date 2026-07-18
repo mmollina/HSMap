@@ -10,6 +10,15 @@
 #'   - alleles: data.frame (marker_id, REF, ALT, chrom, position).
 #'   - pedigree: the pedigree data frame.
 #'   - stats: per-family summary statistics.
+#'
+#' @examples
+#' # A small simulated open-pollinated example dataset ships with the package.
+#' ped  <- system.file("extdata", "example_pedigree.csv",  package = "HSMap")
+#' geno <- system.file("extdata", "example_genotypes.csv", package = "HSMap")
+#' dat  <- read_HSMap_data(ped, geno)
+#' dat
+#' @seealso \code{\link{pairwise_rf}}, \code{\link{hmm_map_blocks}}; the
+#'   \code{vignette("getting-started", package = "HSMap")} for the full workflow.
 #' @importFrom stats na.omit setNames
 #' @export
 read_HSMap_data <- function(pedigree, genotypes, na_strings = c("NA",".","")) {

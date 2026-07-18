@@ -174,6 +174,8 @@ plot_one_map <- function(x,
 #'   recombination fractions between consecutive markers) and `map$order`
 #'   (character vector with marker names in map order).
 #' @param map.function Character. One of `"haldane"`, `"kosambi"`, or `"morgan"`.
+#' @param gap_r Recombination fraction at/above which an interval is treated as a
+#'   no-linkage gap (distance `NA`, excluded from the map length). Default `0.499`.
 #'
 #' @return A named numeric vector of cumulative positions in cM
 #'   with names equal to `map$order`.

@@ -45,7 +45,7 @@ sim_multi_chrom <- function(
     pedigree = NULL,
     seed = NULL,
     keep_paths = FALSE,
-    miss_rate = miss_rate
+    miss_rate = 0
 ){
   stopifnot(is.data.frame(map), all(c("marker_id","chrom","position") %in% names(map)))
   markers <- as.character(map$marker_id)

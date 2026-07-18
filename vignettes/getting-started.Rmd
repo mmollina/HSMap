@@ -55,10 +55,20 @@ sim1 <- sim_multi_pop(
 )
 ```
 
-Real data is loaded with `read_HSMap_data(pedigree.csv, genotypes.csv)`. An
-`HSMap.data` object is simply a list of per-family offspring genotype matrices
-(`G_list`, coded `0/1/2/NA`) and maternal genotype vectors (`M_list`); for the
-tutorial we wrap the simulated genotypes directly:
+Real data is loaded from a pedigree CSV and a genotype CSV with
+`read_HSMap_data()`. A small **simulated** open-pollinated example ships with the
+package, so the reader runs without any private files:
+
+```{r}
+ped  <- system.file("extdata", "example_pedigree.csv",  package = "HSMap")
+geno <- system.file("extdata", "example_genotypes.csv", package = "HSMap")
+example_dat <- read_HSMap_data(ped, geno)
+example_dat
+```
+
+An `HSMap.data` object is, at its core, a list of per-family offspring genotype
+matrices (`G_list`, coded `0/1/2/NA`) and maternal genotype vectors (`M_list`). For
+the rest of this tutorial we wrap the simulated genotypes from Section 1 directly:
 
 ```{r}
 dat1 <- structure(list(G_list = sim1$G_list, M_list = sim1$M_list),
@@ -98,7 +108,14 @@ error rate `epsilon` is fixed at the assay's expected value (here 1%).
 
 ```{r}
 map1 <- hmm_map(dat1, phased = ph1, dam = 1, epsilon = 0.01)
-sum(inv_haldane(map1$fit$r))   # total map length in cM (Haldane)
+
+# Total map length. Do NOT summarise a map with `sum(inv_haldane(map1$fit$r))` in
+# general: an interval at no linkage (r ~ 0.5) would be turned into a huge finite cM
+# distance. Use the gap-aware `get_block_map()`, which reports no-linkage / unresolved
+# intervals as gaps (NA) and never inflates them. Here the family is fully resolved, so
+# the blockwise map is a single block:
+bm1 <- get_block_map(hmm_map_blocks(dat1, ph1), "haldane")
+bm1$total_linked_length             # gap-safe total map length in cM (Haldane)
 ```
 
 ```{r, fig.alt = "Linkage map of the single family as a track of marker positions in centiMorgans."}

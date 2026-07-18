@@ -1,20 +1,25 @@
 Package: HSMap
 Type: Package
-Title: Map Construction in Half-Sib Populations
-Version: 0.0.0.9000
+Title: Maternal Linkage Mapping in Open-Pollinated Diploid Families
+Version: 0.1.0
 Authors@R: c(
-    person(
-      "Marcelo", "Mollinari",
-      email = "mmollina@gmail.com",
-      role = c("aut", "cre")
-    )
+    person("Marcelo", "Mollinari", email = "mmollina@gmail.com",
+           role = c("aut", "cre")),
+    person("Kim", "McKeever", role = "aut"),
+    person("Molly", "Irvin", role = "aut"),
+    person("Fikret", "Isik", role = "aut")
   )
-Description: A fast C++ (Rcpp) implementation that uses a two-state Hidden 
-             Markov Model to estimate recombination rates between genetic 
-             markers from offspring genotypes in outcrossing diploid species. 
-             It handles known mothers, optional known sires,   multiple 
-             populations (families), and scattered missing markers.
+Description: A fast C++ (Rcpp) maternal hidden Markov model for building linkage
+             maps in open-pollinated (unknown-sire) diploid half-sib families. The
+             unknown paternal contribution is integrated out through a per-marker,
+             dam-specific paternal gametic frequency; several dams are combined by a
+             joint EM that estimates one shared recombination map while keeping phase
+             and the paternal model dam-specific. Maps are fitted within resolved phase
+             blocks, and no-linkage intervals are reported as gaps rather than large
+             centimorgan distances.
 License: MIT + file LICENSE
+URL: https://github.com/mmollina/HSMap
+BugReports: https://github.com/mmollina/HSMap/issues
 LazyData: TRUE
 LazyDataCompression: xz
 Depends:

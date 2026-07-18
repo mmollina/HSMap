@@ -13,17 +13,129 @@
 \emergencystretch=1.5em  % gentle extra stretch to avoid overfull boxes
 
 \title{Inference of Recombination and Maternal Linkage Phase in Open-Pollinated Diploid Families}
-\author{Marcelo Mollinari, Kim McKeever, Molly Irvin, Fikret Isik}
-\date{September 2025}
+\author{%
+  Marcelo Mollinari$^{\ast}$, Kim McKeever, Molly Irvin, Fikret Isik\\[6pt]
+  {\normalsize\itshape Affiliations to be confirmed.}\\
+  {\normalsize $^{\ast}$Corresponding author (assumed); e-mail to be confirmed.}
+}
+% AUTHOR / AFFILIATION METADATA --- TO BE CONFIRMED MANUALLY (do not guess or invent):
+%   (a) each author's affiliation(s): institution, department, city, country;
+%   (b) the corresponding author (assumed here to be Marcelo Mollinari) and the
+%       corresponding e-mail address;
+%   (c) ORCID iDs, if the authors wish to include them;
+%   (d) author roles / contributions (e.g. the CRediT taxonomy).
+% The above are placeholders only; no affiliation, e-mail, ORCID, or role has been
+% assumed beyond the corresponding-author guess, which must be verified.
+\date{}   % submission/preprint date to be set at submission; the stale "September 2025" was removed
 
 \begin{document}
 \maketitle
+
+\begin{abstract}
+\noindent\textbf{Background.} Linkage mapping in outcrossing and open-pollinated
+species is complicated by unknown paternity: offspring in a half-sib family share a
+known mother but are sired by one or more unknown fathers, so the paternal contribution
+to each offspring genotype cannot be observed directly \citep{GrattapagliaSederoff1994}.
+\noindent\textbf{Results.} We present \textsf{HSMap}, an \textsf{R} package that infers
+maternal recombination and linkage phase from open-pollinated diploid half-sib families
+using a fast \textsf{C++} maternal hidden Markov model. The unknown paternal
+contribution is integrated out of the emissions through a per-marker, dam-specific
+paternal gametic frequency; multiple dams are combined by a joint
+expectation--maximization (EM) algorithm that estimates a single shared recombination
+map while keeping linkage phase and the paternal model dam-specific. Phase is inferred
+externally from pairwise evidence and held fixed; the multipoint map is fitted only
+within resolved phase blocks, and intervals with no linkage or unresolved phase are
+reported as gaps rather than as inflated map distances.
+% TODO-SIMULATION-RESULT: one or two sentences summarising recovery accuracy and the multi-dam benefit.
+% TODO-REAL-DATA-RESULT: one or two sentences summarising the example real-data map.
+\noindent\textbf{Conclusions.} \textsf{HSMap} provides a statistically explicit,
+reproducible workflow for maternal linkage mapping when sires are unknown, with honest
+reporting of unresolved phase and unlinked intervals.
+% TODO-FINAL-ABSTRACT: finalise the numeric claims and tighten to the target journal's structured-abstract format once the simulation study and real-data analysis are complete.
+\end{abstract}
+
+\section{Introduction}
+Linkage maps order molecular markers along chromosomes and quantify the recombination
+between them, and they remain foundational for quantitative trait locus (QTL) mapping,
+genome assembly validation, and the study of recombination itself
+\citep{LanderBotstein1989}.
+In many outcrossing plants and in open-pollinated breeding populations, the natural unit
+of observation is a \emph{half-sib family}: a single known mother (dam) with many
+offspring whose fathers are unknown and potentially numerous (a pollen pool), a design
+central to linkage mapping in outcrossing species \citep{GrattapagliaSederoff1994}.
+This design is attractive because such families are inexpensive to generate at scale,
+but it poses a specific statistical difficulty for mapping: because the sire(s) are
+unknown, the paternal allele transmitted to each offspring is a latent quantity, and the
+usual full-sib machinery---which conditions on two known, phased parents---does not
+apply.
+
+A common response is to discard the paternal contribution by analysing only markers at
+which the dam is heterozygous and treating the paternal allele as noise. This wastes
+information and does not provide a principled likelihood. A more explicit alternative is
+to model the transmission of the maternal homologs directly with a hidden Markov model
+(HMM), as in multilocus linkage analysis \citep{LanderGreen1987}, and to integrate out
+the unknown paternal allele at each marker.
+Two features of the open-pollinated setting then demand care. First, the paternal
+contribution is not a single sire's genotype but a \emph{pollen-pool} composition that
+can differ between dams; it must be estimated, and it should be allowed to be
+dam-specific. Second, because a single dam is heterozygous at only a subset of markers,
+the linkage phase along a chromosome can be only partially identified from that dam's
+data, and na\"ively forcing a phase where the data do not support one biases the map.
+
+We present \textsf{HSMap}, an \textsf{R} package (with a \textsf{C++}/\textsf{Rcpp}
+core) that addresses both issues. \textsf{HSMap} models maternal transmission with a
+maternal-only HMM whose emissions marginalize the unknown paternal allele through a
+per-marker, dam-specific \emph{paternal gametic frequency}; it estimates one shared
+female recombination map across dams by a joint EM while keeping phase and the paternal
+model dam-specific; it infers phase from pairwise evidence and, crucially, reports
+intervals whose phase is unresolved rather than imputing them; and it fits the
+multipoint map within resolved phase blocks, reporting unlinked intervals as gaps. The
+remainder of the paper specifies the model and its estimation, describes the software,
+and lays out the simulation and real-data studies that evaluate it. Support for
+\emph{known}-sire full-sib crosses is under development and is discussed only as future
+work.
+
+\section{Software and methodological overview}
+\textsf{HSMap} implements a single, reproducible workflow. Pedigree and genotype tables
+are read into a family-structured data object; a two-point (pairwise) analysis estimates
+a recombination fraction and a phase log-odds (LOD) score for every marker pair, sharing
+the recombination fraction across informative families while estimating a dam-specific
+paternal frequency; markers are clustered into linkage groups and ordered within each
+group; each dam's linkage phase is assembled from the pairwise phase calls by a
+signed-graph optimization that returns explicit resolved/unresolved metadata; the
+multipoint maternal HMM is then fitted by EM---for a single dam, jointly across dams
+sharing one map, or blockwise across regions of unresolved phase; and maps are summarized
+with gap-aware centimorgan positions and plotted by phase block and map segment. The
+statistical core is a two-state maternal HMM (Section~\ref{sec:transition}) whose
+emissions integrate out the paternal allele through the dam-specific gametic frequency
+(Section~\ref{emission}); parameters are estimated by forward--backward EM
+(Section~\ref{sec:param_estimation}); phase is assembled externally
+(Section~\ref{sec:graph_phase}); and blockwise fitting with gap-aware reporting handles
+unresolved phase and no-linkage intervals (Section~\ref{sec:blocks}). The package,
+documentation, and the small simulated example used throughout are openly available
+(Section~\ref{sec:availability}). Figure~\ref{fig:method} summarizes the workflow and the
+underlying model.
+
+\begin{figure}[t]
+\centering
+\fbox{\begin{minipage}{0.86\linewidth}\centering\vspace{2.6cm}
+\emph{[Figure placeholder --- method and workflow diagram]}\vspace{2.6cm}\end{minipage}}
+\caption{Overview of the \textsf{HSMap} model and workflow: from pedigree and genotype
+input through two-point analysis, grouping and ordering, dam-specific phase assembly, and
+blockwise multipoint HMM fitting to gap-aware map reporting. The inset will depict the
+maternal-only hidden Markov model in which the hidden state is the transmitted maternal
+homolog, transitions encode recombination, and the emission integrates out the unknown
+paternal allele through the dam-specific gametic frequency.}
+\label{fig:method}
+% TODO-FIGURE: schematic of the maternal HMM and the analysis workflow.
+\end{figure}
+
 \section{Methods}
 
 \subsection{Overview}
 We infer maternal recombination and linkage phase in diploid half-sib families with multiple dams and unknown sires. For each dam, transmission along an ordered marker set is modeled with a maternal-only hidden Markov model. The hidden chain identifies which maternal homolog is transmitted, transitions reflect recombination between adjacent markers, and emissions link the hidden homolog to observed offspring genotypes while averaging over the unknown paternal contribution.
 
-We model inheritance along ordered markers with a hidden Markov model (HMM), where the latent state at marker $t$ encodes which maternal homolog was transmitted to each offspring. Transitions between states are governed by the recombination fractions between adjacent markers, and emissions are the offspring genotype likelihoods given the transmitted maternal homolog and a single scalar genotyping error rate (not a per-dam or per-marker error model). Parameters are estimated by maximum likelihood using forward and backward recursions with per-position scaling \citep{Rabiner1989}. To avoid introducing an additional latent layer for phase, we infer each dam’s chromosomal phase externally and hold it fixed during HMM fitting. When several dams are analyzed together, we fit one recombination map across families, while phase and emissions remain dam specific. Pooling families in a single framework increases effective sample size for estimating recombination and improves precision, especially when individual families are small.
+We model inheritance along ordered markers with a hidden Markov model (HMM), where the latent state at marker $t$ encodes which maternal homolog was transmitted to each offspring. Transitions between states are governed by the recombination fractions between adjacent markers, and emissions are the offspring genotype likelihoods given the transmitted maternal homolog and a single scalar genotyping error rate (not a per-dam or per-marker error model). Parameters are estimated by maximum likelihood using forward and backward recursions with per-position scaling \citep{Rabiner1989}. To avoid introducing an additional latent layer for phase, we infer each dam’s chromosomal phase externally and hold it fixed during HMM fitting. When several dams are analyzed together, we fit one recombination map across families, while phase and emissions remain dam specific. Pooling families in a single framework increases the effective sample size for estimating recombination and is expected to improve precision when individual families are small; this expected benefit is evaluated in the simulation study (Section~\ref{sec:sim}).
 
 
 We work under the following minimal assumptions: ($i$) the marker order is fixed; ($ii$) meioses are independent across offspring; ($iii$) a single female recombination map is shared across dams; ($iv$) genotyping errors are independent across loci and individuals; ($v$) allele transmission follows Mendelian segregation without distortion; ($vi$) for each dam $d$, the paternal contribution enters the offspring likelihood only through a single per-marker, dam-specific \emph{paternal gametic frequency} $q_k^{(d)}=\Pr(\text{a paternal gamete contributing to an offspring of dam }d\text{ transmits allele }A)$; in an open-pollinated family this is generally a dam-specific pollen-pool probability that may average over several unknown sires, rather than the allele frequency of a single sire, and each $q_k^{(d)}$ is a parameter estimated in the EM (detailed later); and ($vii$) at each marker the paternal gamete allele is marginalized conditional on $q_k^{(d)}$, \emph{independently across markers}, i.e.\ paternal linkage disequilibrium across markers is not modeled.
@@ -366,19 +478,273 @@ Rather than embedding phase estimation within the HMM, which would introduce an 
 The graph is built \emph{per dam} from that dam's own phase-LOD matrix (not a pooled LOD), using only supported edges (finite LOD above a support threshold). It is split into connected components; within a component we initialize \(x\) using the leading eigenvector of \(J\), following signed-graph spectral ideas \citep{Kunegis2010SpectralVisualization}, and refine with greedy coordinate ascent (a deterministic best-improvement rule). This is a \emph{heuristic} and is not guaranteed to reach the global optimum. The relative orientation of different components is unidentified: intervals crossing a component boundary are returned as \emph{unresolved} rather than forced to coupling, and a region with no supported edges is reported as unresolved rather than as a resolved phase. This yields a dam-specific phase configuration \((\boldsymbol{\psi}^{(1)},\dots,\boldsymbol{\psi}^{(D)})\) with explicit resolved/unresolved metadata. A concise algorithmic description appears in Supplementary Section~\ref{sec:graph_phase}.
 
 
-\subsection{Implementation Details}
+\section{Implementation}\label{sec:implementation}
 
 \paragraph{GitHub repository:} \url{https://github.com/mmollina/HSMap}
 
-\paragraph{Initialization and Constraints:} We use an uninformative prior for the initial hidden states at the left boundary (uniform prior $\,\Pr(S_{i1}=1)=\Pr(S_{i1}=2)=\tfrac12$). Recombination fractions are initialized uniformly (e.g., $r_k=0.1$) and are estimated over the interval $[\varepsilon, 0.5]$ during optimization for a small $\varepsilon > 0$ (numerically capped just below $0.5$; $r_k=0.5$ is permitted and denotes no linkage, reported as a gap). Each dam-specific paternal gametic frequency $q_k^{(d)}$ is initialized at $0.5$; the default total pseudocount is $\lambda=20$ (i.e.\ $\alpha_k=\beta_k=10$, pseudocount target $q^{(0)}_k=0.5$), retained for backward compatibility only and not a statistically validated recommendation (Section~\ref{sec:par_cont}).
+\paragraph{Initialization and Constraints:} We use an uninformative prior for the initial hidden states at the left boundary (uniform prior $\,\Pr(S_{i1}=1)=\Pr(S_{i1}=2)=\tfrac12$). Recombination fractions are initialized uniformly (by default $r_k=0.05$) and are estimated over the interval $[\varepsilon, 0.5]$ during optimization for a small $\varepsilon > 0$ (numerically capped just below $0.5$; $r_k=0.5$ is permitted and denotes no linkage, reported as a gap). Each dam-specific paternal gametic frequency $q_k^{(d)}$ is initialized at $0.5$; the default total pseudocount is $\lambda=20$ (i.e.\ $\alpha_k=\beta_k=10$, pseudocount target $q^{(0)}_k=0.5$), retained for backward compatibility only and not a statistically validated recommendation (Section~\ref{sec:par_cont}).
 
-\paragraph{Convergence and Decoding:} The EM algorithm is run until (i) the relative change in the \emph{active objective}---the observed-data log-likelihood when $\lambda=0$, or the penalized objective (observed-data log-likelihood plus the $q$ pseudocount penalty) when $\lambda>0$---falls below a tolerance of $10^{-6}$, \emph{and} (ii) the maximum change in the identifiable parameters $\mathbf r$ and $q$ is below the same tolerance; or until a maximum number of iterations is reached (default $1000$; the wrapper warns on non-convergence). Convergence is \emph{not} gated on movement along the non-identifiable paternal genotype decomposition. The reported log-likelihood is evaluated at the final returned parameters (after the last M-step). The recombination fractions are conditional maximum-likelihood estimates in $[\varepsilon, 0.5]$ (with $r=0.5$ permitted when the data indicate no linkage), whereas each $q_k^{(d)}$ is a penalized/maximum-a-posteriori estimate when $\lambda>0$ and an unpenalized maximum-likelihood estimate when $\lambda=0$. The emission error rate is a single user-specified scalar $\varepsilon$; the model does not fit a per-dam or per-marker error rate. After convergence, the final model parameters can be used to decode the maternal transmissions for each offspring. The Viterbi algorithm can be used to find the single most probable inheritance path, while the posterior probabilities ($\gamma_k(j)$) provide the probability of inheriting from each homolog at each locus. These decoded paths are valuable for downstream analyses, such as identifying specific crossover locations, error checking or quantitative trait loci (QTL) analysis.
+\paragraph{Convergence and Decoding:} The EM algorithm is run until (i) the relative change in the \emph{active objective}---the observed-data log-likelihood when $\lambda=0$, or the penalized objective (observed-data log-likelihood plus the $q$ pseudocount penalty) when $\lambda>0$---falls below a tolerance of $10^{-6}$, \emph{and} (ii) the maximum change in the identifiable parameters $\mathbf r$ and $q$ is below the same tolerance; or until a maximum number of iterations is reached (default $1000$; the wrapper warns on non-convergence). Convergence is \emph{not} gated on movement along the non-identifiable paternal genotype decomposition. The reported log-likelihood is evaluated at the final returned parameters (after the last M-step). The recombination fractions are conditional maximum-likelihood estimates in $[\varepsilon, 0.5]$ (with $r=0.5$ permitted when the data indicate no linkage), whereas each $q_k^{(d)}$ is a penalized/maximum-a-posteriori estimate when $\lambda>0$ and an unpenalized maximum-likelihood estimate when $\lambda=0$. The emission error rate is a single user-specified scalar $\varepsilon$; the model does not fit a per-dam or per-marker error rate. After convergence, the final model parameters can be used to decode the maternal transmissions for each offspring. The posterior probabilities ($\gamma_k(j)$) provide the probability of inheriting from each homolog at each locus (a most-probable-path / Viterbi decoder is not currently provided). These decoded paths are valuable for downstream analyses, such as identifying specific crossover locations, error checking or quantitative trait loci (QTL) analysis.
 
 \paragraph{Computational Notes:} For $n$ offspring and $z$ markers, the forward-backward algorithm has a time complexity of $O(nz)$ and constant memory per individual. The computations are trivially parallelizable across offspring. To prevent numerical underflow, we use per-position scaling, where the individual log-likelihood is the sum of the logs of the scaling factors. Loci where the dam is homozygous are uninformative for phase but are retained in the model.
 
 \paragraph{Equivalent allele-state parameterization.} The hidden state defined above indexes the transmitted maternal homolog, so the transition matrix is phase-free and linkage phase enters only through the emission allele labels $A_k^{(d,j)}$ (Section~\ref{sec:transition}). The implementation uses a mathematically equivalent reparameterization in which the hidden state is the transmitted \emph{allele} ($a$ or $A$). Emissions then depend only on the transmitted allele and are phase-free, while the fixed allele-to-homolog labeling implied by the phase makes linkage phase enter the \emph{transition}: a nonrecombinant interval preserves the allele under coupling, so $\Pr(\text{same allele})=1-r_k$, and switches it under repulsion, so $\Pr(\text{same allele})=r_k$. The two formulations yield identical per-individual likelihoods and recombination estimates; the allele-state form avoids relabeling emissions whenever the phase changes, and homolog posteriors are recovered by a cumulative exclusive-or over repulsion intervals. Equivalently, in the M-step a recombination in interval $k$ is the homolog-index switch of Section~\ref{sec:transition}, which the allele-state code scores as an allele switch under coupling and an allele match under repulsion.
 
 \paragraph{Paternal linkage disequilibrium and pollen-pool heterogeneity (limitation).} The paternal contribution is marginalized one marker at a time: the paternal gamete alleles are treated as independent across markers (assumption $vii$), so paternal linkage disequilibrium (LD) across markers is not modeled, and the gametic $q^{(d)}$ model does not represent paternal haplotypes. When paternal LD is present, the offspring two-locus genotype distribution departs from the independent-gamete form assumed here, which can bias the paternal (pollen-pool) gametic-frequency estimates and, through them, confound maternal phase or recombination inference---most directly in the pairwise phase stage (Section~\ref{sec:tpt}), whose likelihood assumes independent paternal alleles at the two markers. Both the pairwise stage and the multipoint model estimate a separate paternal gametic frequency per dam ($p_k^{(d)}$ and $q_k^{(d)}$, respectively); neither, however, models cross-marker paternal LD. The method therefore does not claim to resolve unknown-paternity structure completely; accounting for paternal LD across markers is left to future work.
+
+\section{Simulation study}\label{sec:sim}
+\emph{This section specifies the planned simulation study; numerical results, figures,
+and tables are placeholders to be completed.}
+
+\subsection{Planned design}
+We will evaluate \textsf{HSMap} on data simulated by the package's own generators
+(\texttt{sim\_multi\_pop}, \texttt{sim\_multi\_chrom}), under scenarios that vary the
+number of dams, the number of offspring per dam, marker density and map length, the mix
+of coupling and repulsion phase, the pollen-pool allele frequencies (and their
+heterogeneity across dams), the genotyping error rate, and the missing-data rate
+(Table~\ref{tab:sim_scenarios}). Each scenario will be replicated, and every replicate
+will be analysed with the same pipeline used on real data. To separate estimation error
+in the recombination map from error introduced by phase inference, we will run each
+scenario both with the true (oracle) phase supplied and with phase inferred by the
+package, quantifying the loss attributable to phasing.
+
+\subsection{Planned evaluation metrics}
+We will report, for each scenario: (i) the bias and root-mean-square error of the
+estimated interval recombination fractions and of the total map length; (ii) marker
+ordering accuracy for the grouping/ordering stage; (iii) the proportion of intervals
+whose phase is resolved and the phase error rate among resolved intervals; and (iv) the
+frequency with which genuinely unlinked intervals are correctly reported as gaps rather
+than as inflated distances. A central comparison contrasts the single-dam estimator with
+the joint multi-dam estimator to quantify the precision gained by pooling recombination
+information across families that are heterozygous at different marker subsets
+(Figure~\ref{fig:multidam}). We will also examine the sensitivity of the results to the
+compatibility-only defaults (the paternal pseudocount $\lambda$, the phase-support
+threshold, and the no-linkage threshold $\texttt{gap\_r}$).
+
+\begin{table}[t]
+\centering
+\caption{Planned simulation scenarios. Each row defines a factor combination
+(number of dams, offspring per dam, marker density, map length, phase composition,
+pollen-pool frequency and heterogeneity, error and missing rates); the full grid and
+number of replicates will be specified with the results.}
+\label{tab:sim_scenarios}
+\begin{tabular}{lcccccc}
+\toprule
+Scenario & Dams & Offspring/dam & Markers & Map (cM) & Error & Missing \\
+\midrule
+\multicolumn{7}{c}{\emph{[to be populated: simulation scenario grid]}} \\
+\bottomrule
+\end{tabular}
+% TODO-SIMULATION-RESULT: fill the scenario grid and replicate count.
+\end{table}
+
+\subsection{Results (planned)}
+% TODO-SIMULATION-RESULT: summarise recombination-fraction bias/RMSE, map-length
+% accuracy, ordering accuracy, and phase-resolution rates across scenarios.
+% TODO-FINAL-ABSTRACT: propagate the headline simulation numbers to the abstract.
+
+\begin{figure}[t]
+\centering
+\fbox{\begin{minipage}{0.82\linewidth}\centering\vspace{2.4cm}
+\emph{[Figure placeholder --- simulation accuracy]}\vspace{2.4cm}\end{minipage}}
+\caption{Estimated versus true interval recombination fractions and total map length
+across simulation scenarios, under oracle and inferred phase, summarizing the accuracy
+and sample-size dependence of the estimator.}
+\label{fig:sim_accuracy}
+% TODO-FIGURE: estimated-vs-true interval r and map length, faceted by scenario.
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\fbox{\begin{minipage}{0.82\linewidth}\centering\vspace{2.4cm}
+\emph{[Figure placeholder --- multi-dam benefit]}\vspace{2.4cm}\end{minipage}}
+\caption{Precision of the shared recombination map as a function of the number of
+pooled dams, comparing the joint multi-dam estimator with single-dam estimates, for
+families heterozygous at different marker subsets.}
+\label{fig:multidam}
+% TODO-FIGURE: map-estimate variance vs number of dams; joint vs single-dam.
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\fbox{\begin{minipage}{0.82\linewidth}\centering\vspace{2.4cm}
+\emph{[Figure placeholder --- phase resolution]}\vspace{2.4cm}\end{minipage}}
+\caption{Phase resolution as a function of dam informativeness (maternal heterozygosity
+and number of dams): the proportion of intervals resolved and the phase error rate among
+resolved intervals.}
+\label{fig:phaseres}
+% TODO-FIGURE: resolved fraction and phase error vs informativeness.
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Simulation accuracy summary: bias and RMSE of interval recombination
+fractions and total map length, ordering accuracy, and phase-resolution statistics,
+by scenario and phase mode (oracle vs inferred).}
+\label{tab:sim_accuracy}
+\begin{tabular}{lcccc}
+\toprule
+Scenario & $r$ bias & $r$ RMSE & Map-length error & Phase resolved (\%) \\
+\midrule
+\multicolumn{5}{c}{\emph{[to be populated: simulation accuracy]}} \\
+\bottomrule
+\end{tabular}
+% TODO-SIMULATION-RESULT: populate accuracy metrics.
+\end{table}
+
+\section{Real-data application}\label{sec:realdata}
+\emph{This section specifies the planned real-data analysis; numerical results, figures,
+and tables are placeholders to be completed.}
+
+\subsection{Planned materials and methods}
+We will apply \textsf{HSMap} to an open-pollinated family---one genotyped dam and its
+open-pollinated offspring genotyped at SNP markers on a single chromosome (or linkage
+group). Marker quality control will precede mapping: per-marker call rate, whether the
+dam is heterozygous, Mendelian consistency of offspring calls at dam-homozygous markers,
+the deviation of the offspring heterozygote proportion from its expectation at
+dam-heterozygous markers, a raw pollen-pool allele-frequency estimate where identifiable,
+and detection of exact-duplicate (co-segregating) marker profiles
+(Table~\ref{tab:qc}). Markers passing quality control will be analysed with the workflow
+of Sections~\ref{sec:param_estimation}--\ref{sec:blocks}: two-point analysis, grouping
+and ordering, dam-specific phase assembly, and blockwise multipoint fitting, with
+gap-aware map reporting. Analysis parameters (error rate, pseudocount, thresholds) will
+be reported with the results, and the compatibility-only defaults will be treated as
+such. Because these are individual-level genotypes, the data are not redistributed with
+the package (Section~\ref{sec:availability}); the analysis is fully scripted for
+reproducibility.
+
+\subsection{Results (planned)}
+% TODO-REAL-DATA-RESULT: report the number of markers passing QC, linkage-group
+% structure, the resolved map (length, number of gaps/segments), and phase resolution.
+
+\begin{table}[t]
+\centering
+\caption{Real-data marker quality-control summary: markers assessed and passing each
+criterion (call rate, dam heterozygosity, Mendelian consistency at dam-homozygous
+markers, offspring-heterozygote deviation, duplicate profiles).}
+\label{tab:qc}
+\begin{tabular}{lcc}
+\toprule
+Quality-control criterion & Markers assessed & Markers passing \\
+\midrule
+\multicolumn{3}{c}{\emph{[to be populated: real-data QC]}} \\
+\bottomrule
+\end{tabular}
+% TODO-REAL-DATA-RESULT: populate QC counts.
+\end{table}
+
+\begin{figure}[t]
+\centering
+\fbox{\begin{minipage}{0.82\linewidth}\centering\vspace{2.4cm}
+\emph{[Figure placeholder --- recombination-fraction heatmap]}\vspace{2.4cm}\end{minipage}}
+\caption{Pairwise recombination-fraction (and phase-LOD) heatmap for the real-data
+markers in the estimated order, showing linkage-group structure.}
+\label{fig:rfheat}
+% TODO-FIGURE: RF/LOD heatmap in estimated marker order.
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\fbox{\begin{minipage}{0.82\linewidth}\centering\vspace{2.4cm}
+\emph{[Figure placeholder --- real-data linkage map]}\vspace{2.4cm}\end{minipage}}
+\caption{Estimated maternal linkage map for the real-data family, drawn by phase block
+and map segment, with unresolved-phase and no-linkage intervals shown as gaps.}
+\label{fig:realmap}
+% TODO-FIGURE: blockwise map (plot_block_map output).
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Real-data map summary: per linkage group, the number of markers, resolved
+phase blocks and map segments, total linked map length, and the number of no-linkage
+and unresolved-phase gaps.}
+\label{tab:mapsummary}
+\begin{tabular}{lccccc}
+\toprule
+Linkage group & Markers & Blocks & Segments & Length (cM) & Gaps \\
+\midrule
+\multicolumn{6}{c}{\emph{[to be populated: real-data map summary]}} \\
+\bottomrule
+\end{tabular}
+% TODO-REAL-DATA-RESULT: populate map summary.
+\end{table}
+
+\section{Discussion}
+\textsf{HSMap} takes the position that, in open-pollinated families, the unknown
+paternal contribution should be modelled explicitly rather than discarded. Marginalizing
+the paternal allele through a per-marker gametic frequency yields a proper likelihood for
+maternal transmission and, importantly, keeps that nuisance parameter interpretable: it
+is a pollen-pool transmission probability, estimated per dam because different dams may be
+pollinated by different pollen compositions. Sharing a single recombination map across
+dams while keeping phase and the paternal model dam-specific reflects the biology---the
+female map is a property of the species/chromosome, whereas phase and pollen composition
+are properties of the individual family---and it lets the joint EM pool recombination
+information across families that are informative at different markers. The estimator pools
+\emph{recombination counts} into the shared map; it does not pool phase or the paternal
+frequencies, which remain dam-specific.
+
+Two design choices deserve emphasis. First, phase is inferred outside the HMM and held
+fixed. This avoids an extra latent layer and a much harder joint optimization, at the
+cost of not propagating phase uncertainty; the workflow mitigates the risk by refusing to
+impute phase where the pairwise evidence does not support it, returning explicit
+unresolved intervals instead. Second, the multipoint map is fitted only within resolved
+phase blocks, and unlinked intervals are reported as gaps. This prevents the common
+artefact whereby an interval with a recombination fraction near one-half is converted into
+a very large centimorgan distance, and it makes the boundary between ``mapped'' and ``not
+mapped'' explicit. Relative to full-sib mapping with two known, phased parents, the
+open-pollinated model recovers less information per family---paternal transmission is not
+tracked---but it applies where full-sib designs are unavailable, and pooling across dams
+recovers precision. Extending the framework to \emph{known}-sire full-sib crosses, in
+which paternal transmission is itself a linked hidden path, is a natural next step and is
+under development (Section~\ref{sec:limitations}).
+
+\section{Limitations}\label{sec:limitations}
+Several limitations bound the current method. (i) \emph{Paternal linkage disequilibrium.}
+The paternal allele is marginalized independently at each marker, so cross-marker paternal
+LD is not modelled; when present it can bias the pollen-pool frequency estimates and,
+through the pairwise phasing stage, maternal inference. (ii) \emph{Fixed phase.} Phase is
+a hard external call held fixed during HMM fitting, so phase uncertainty is not propagated
+into the map; intervals where phase cannot be resolved are reported as gaps rather than
+guessed. (iii) \emph{Heterogeneity test.} The optional test for a shared map across dams
+is a \emph{conditional, global-scale} likelihood-ratio test---it rescales the overall map
+length per dam with the interval shape held fixed, conditional on the fitted phase and
+paternal nuisance parameters---and its $\chi^2$ calibration is asymptotic; it is not a test
+of interval-specific heterogeneity. (iv) \emph{Unvalidated defaults.} The paternal
+pseudocount ($\lambda$), the phase-support threshold, and the no-linkage threshold
+(\texttt{gap\_r}) are retained as compatibility values and have not yet been optimized by
+simulation; they are labelled as such in the software. (v) \emph{Completeness.} Map
+completeness depends on dam informativeness: a chromosome that no dam resolves cannot be
+mapped across the unresolved region. (vi) \emph{Scope.} The present method covers
+open-pollinated / unknown-sire families; known-sire full-sib support is experimental and
+not part of this work.
+
+\section{Conclusions}
+\textsf{HSMap} provides an explicit, reproducible framework for building maternal linkage
+maps in open-pollinated diploid half-sib families. By integrating out the unknown paternal
+contribution through a dam-specific gametic frequency, pooling recombination information
+across dams in a joint EM, inferring phase with honest unresolved-interval reporting, and
+fitting maps blockwise with gap-aware summaries, it turns an otherwise awkward design into
+a statistically principled workflow.
+% TODO-SIMULATION-RESULT / TODO-REAL-DATA-RESULT: add a concluding sentence quantifying
+% performance once the studies are complete.
+
+\section{Software and data availability}\label{sec:availability}
+\textsf{HSMap} is an open-source \textsf{R} package (version 0.1.0), released under the MIT
+license and available at \url{https://github.com/mmollina/HSMap}, with reference
+documentation and a ``Getting started'' vignette. A small \emph{simulated}
+open-pollinated dataset is distributed with the package (in \texttt{inst/extdata}) so that
+all examples, the vignette, and the quick-start workflow run without any private files.
+The individual-level genotypes used in the real-data application are not redistributed
+with the package for participant-data reasons; % TODO-REAL-DATA-RESULT: state the exact
+% data-availability terms (repository/accession or availability on reasonable request).
+
+\section*{Reproducibility}\label{sec:reproducibility}
+The entire analysis is scripted and deterministic under a single computational thread. The
+package ships the simulated example data and the code that generates it; the simulation
+and real-data analyses are driven by scripts that record the package version, the exact
+command arguments, the random seed, and the \textsf{R} \texttt{sessionInfo()} in their
+output. % TODO-REAL-DATA-RESULT / TODO-SIMULATION-RESULT: cite the exact analysis scripts
+% and their archived outputs once finalised.
 
 \section{Supplementary Material} \label{sec:sup_mat}
 \subsection{Paternal gametic frequency: E-step and M-step} \phantomsection \label{sec:par_cont}

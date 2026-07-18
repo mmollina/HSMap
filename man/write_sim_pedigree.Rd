@@ -7,7 +7,7 @@
 write_sim_pedigree(sim, file = NULL)
 }
 \arguments{
-\item{sim}{Object returned by \code{sim_multi_pop()} or \code{sim_multi_genome()}.}
+\item{sim}{Object returned by \code{sim_multi_pop()} or \code{sim_multi_chrom()}.}
 
 \item{file}{Optional path. If provided, the table is written as CSV (UTF-8).}
 }

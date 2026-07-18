@@ -38,9 +38,15 @@
 #'   added **per marker** and truncated into `(1e-4, 1-1e-4)`.
 #' - If a population has a *known sire* (probability
 #'   `known_sire_prob_per_pop` when no pedigree is given), the sire genotype is
-#'   drawn per marker under HWE at the population's perturbed allele frequency
+#'   drawn **per marker** under HWE at the population's perturbed allele frequency
 #'   and encoded as a one-hot column in the 3 x T `pi_true` matrix for that
-#'   population.
+#'   population. This is a **simulation-only** device that fixes a paternal
+#'   *genotype* composition; the paternal genotypes are generated **independently
+#'   across markers** (there is no linked paternal meiosis and no paternal
+#'   haplotype). It does **not** correspond to, and must not be read as, support for
+#'   known-sire / full-sib linkage mapping: the estimation functions in this package
+#'   model the open-pollinated / unknown-sire case only (the paternal contribution is
+#'   integrated out per marker through a dam-specific gametic frequency).
 #'
 #' **Phase along the chromosome**
 #'
@@ -88,8 +94,12 @@
 #' @param paternal_pA_sd Non-negative numeric. Per-population Gaussian perturbation SD
 #'   added to `paternal_pA_base` *per marker*. The perturbed values are then
 #'   truncated into `(1e-4, 1-1e-4)`.
-#' @param known_sire_prob_per_pop Numeric in `[0,1]`. When no pedigree is passed,
-#'   each population independently has a known sire with this probability.
+#' @param known_sire_prob_per_pop Numeric in `[0,1]`. When no pedigree is passed, each
+#'   population independently has a known sire with this probability. \strong{This is a
+#'   simulation-only, fixed paternal-genotype mechanism:} the sire's genotype is drawn
+#'   independently per marker (no linked paternal meiosis, no paternal haplotype), and it
+#'   does \strong{not} imply or enable known-sire / full-sib mapping --- the estimators
+#'   here model the open-pollinated / unknown-sire case only.
 #' @param error_rate Numeric in `[0,1]`. Per offspring/marker error rate for replacing
 #'   a generated genotype with a different value.
 #' @param pedigree Optional `data.frame` with columns `id, mother, father, generation, family_id`.
@@ -256,6 +266,10 @@ sim_multi_pop <- function(
       list(
         pop_id       = paste0("P", g),
         mother_id    = paste0("MOM", g),
+        # Simulation-only: with prob. known_sire_prob_per_pop this population gets a
+        # fixed sire GENOTYPE (drawn independently per marker, no linked paternal
+        # meiosis). This does NOT enable known-sire/full-sib mapping; the estimators
+        # model the open-pollinated / unknown-sire case only.
         father_id    = ifelse(stats::runif(1) < known_sire_prob_per_pop, paste0("DAD", g), NA_character_),
         offspring_ids= paste0("P", g, "_O", seq_len(n_ind_per_pop[g])),
         markers      = per_pop_markers[[g]]

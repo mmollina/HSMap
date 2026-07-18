@@ -22,7 +22,7 @@ sim_multi_chrom(
   pedigree = NULL,
   seed = NULL,
   keep_paths = FALSE,
-  miss_rate = miss_rate
+  miss_rate = 0
 )
 }
 \arguments{
@@ -61,8 +61,12 @@ paternal mixture per marker. Values are clipped to \verb{(1e-6, 1-1e-6)} before 
 added to \code{paternal_pA_base} \emph{per marker}. The perturbed values are then
 truncated into \verb{(1e-4, 1-1e-4)}.}
 
-\item{known_sire_prob_per_pop}{Numeric in \verb{[0,1]}. When no pedigree is passed,
-each population independently has a known sire with this probability.}
+\item{known_sire_prob_per_pop}{Numeric in \verb{[0,1]}. When no pedigree is passed, each
+population independently has a known sire with this probability. \strong{This is a
+simulation-only, fixed paternal-genotype mechanism:} the sire's genotype is drawn
+independently per marker (no linked paternal meiosis, no paternal haplotype), and it
+does \strong{not} imply or enable known-sire / full-sib mapping --- the estimators
+here model the open-pollinated / unknown-sire case only.}
 
 \item{error_rate}{Numeric in \verb{[0,1]}. Per offspring/marker error rate for replacing
 a generated genotype with a different value.}

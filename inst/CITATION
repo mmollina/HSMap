@@ -1,0 +1,15 @@
+citHeader("To cite HSMap in publications, please use:")
+
+bibentry(
+  bibtype  = "Manual",
+  title    = "HSMap: Maternal Linkage Mapping in Open-Pollinated Diploid Families",
+  author   = c(
+    person("Marcelo", "Mollinari"),
+    person("Kim", "McKeever"),
+    person("Molly", "Irvin"),
+    person("Fikret", "Isik")
+  ),
+  year     = "2026",
+  note     = "R package version 0.1.0. A methods paper is in preparation.",
+  url      = "https://github.com/mmollina/HSMap"
+)

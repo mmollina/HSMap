@@ -1,6 +1,6 @@
-#' @keywords internal
-"_PACKAGE"
-utils::globalVariables(c("marker", "ykey", "dose_f", "value", "stage", "interval", "dam", "phase", "alpha", "pos", "block", "segment"))
-#' @useDynLib HSMap, .registration = TRUE
-#' @importFrom Rcpp sourceCpp
-NULL
+# Register non-standard-evaluation column names used in ggplot2/dplyr pipelines so
+# R CMD check does not report "no visible binding for global variable".
+utils::globalVariables(c(
+  "marker", "ykey", "dose_f", "value", "stage", "interval", "dam", "phase",
+  "alpha", "pos", "block", "segment"
+))

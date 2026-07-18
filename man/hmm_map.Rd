@@ -26,7 +26,7 @@ hmm_map(
 \arguments{
 \item{x}{An \code{HSMap.data} object containing \code{G_list} and \code{M_list}.}
 
-\item{phased}{An object (e.g., from \code{hsmap_phase_from_pairwise}) with
+\item{phased}{An object (e.g., from \code{phase_from_pairwise}) with
 fields \code{order} and \code{phase_vec}. It can represent one dam
 (\code{HSMap.phased}) or multiple dams (\code{HSMap.phased.multi}).}
 
