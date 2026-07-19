@@ -10,6 +10,54 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// fs_loglik_cpp
+double fs_loglik_cpp(IntegerMatrix G, IntegerMatrix Am, IntegerMatrix Ap, NumericVector rm, NumericVector rp, double epsilon);
+RcppExport SEXP _HSMap_fs_loglik_cpp(SEXP GSEXP, SEXP AmSEXP, SEXP ApSEXP, SEXP rmSEXP, SEXP rpSEXP, SEXP epsilonSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerMatrix >::type G(GSEXP);
+    Rcpp::traits::input_parameter< IntegerMatrix >::type Am(AmSEXP);
+    Rcpp::traits::input_parameter< IntegerMatrix >::type Ap(ApSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type rm(rmSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type rp(rpSEXP);
+    Rcpp::traits::input_parameter< double >::type epsilon(epsilonSEXP);
+    rcpp_result_gen = Rcpp::wrap(fs_loglik_cpp(G, Am, Ap, rm, rp, epsilon));
+    return rcpp_result_gen;
+END_RCPP
+}
+// op_estep_cpp
+List op_estep_cpp(IntegerMatrix G, IntegerMatrix Am, NumericVector rm, NumericVector q, double epsilon);
+RcppExport SEXP _HSMap_op_estep_cpp(SEXP GSEXP, SEXP AmSEXP, SEXP rmSEXP, SEXP qSEXP, SEXP epsilonSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerMatrix >::type G(GSEXP);
+    Rcpp::traits::input_parameter< IntegerMatrix >::type Am(AmSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type rm(rmSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type q(qSEXP);
+    Rcpp::traits::input_parameter< double >::type epsilon(epsilonSEXP);
+    rcpp_result_gen = Rcpp::wrap(op_estep_cpp(G, Am, rm, q, epsilon));
+    return rcpp_result_gen;
+END_RCPP
+}
+// fs_estep_cpp
+List fs_estep_cpp(IntegerMatrix G, IntegerMatrix Am, IntegerMatrix Ap, NumericVector rm, NumericVector rp, double epsilon, bool return_gamma);
+RcppExport SEXP _HSMap_fs_estep_cpp(SEXP GSEXP, SEXP AmSEXP, SEXP ApSEXP, SEXP rmSEXP, SEXP rpSEXP, SEXP epsilonSEXP, SEXP return_gammaSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerMatrix >::type G(GSEXP);
+    Rcpp::traits::input_parameter< IntegerMatrix >::type Am(AmSEXP);
+    Rcpp::traits::input_parameter< IntegerMatrix >::type Ap(ApSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type rm(rmSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type rp(rpSEXP);
+    Rcpp::traits::input_parameter< double >::type epsilon(epsilonSEXP);
+    Rcpp::traits::input_parameter< bool >::type return_gamma(return_gammaSEXP);
+    rcpp_result_gen = Rcpp::wrap(fs_estep_cpp(G, Am, Ap, rm, rp, epsilon, return_gamma));
+    return rcpp_result_gen;
+END_RCPP
+}
 // hmm_hs_cpp_parallel
 Rcpp::List hmm_hs_cpp_parallel(Rcpp::IntegerMatrix G, Rcpp::IntegerVector M, Rcpp::IntegerVector phase_vec, double r_start, std::string pi_mode, Rcpp::Nullable<Rcpp::NumericMatrix> pi_prior_in, double lambda, double epsilon, double tol, int maxit, std::string paternal_mode, Rcpp::Nullable<Rcpp::NumericMatrix> Pi_prior_in, Rcpp::Nullable<Rcpp::NumericVector> r_init);
 RcppExport SEXP _HSMap_hmm_hs_cpp_parallel(SEXP GSEXP, SEXP MSEXP, SEXP phase_vecSEXP, SEXP r_startSEXP, SEXP pi_modeSEXP, SEXP pi_prior_inSEXP, SEXP lambdaSEXP, SEXP epsilonSEXP, SEXP tolSEXP, SEXP maxitSEXP, SEXP paternal_modeSEXP, SEXP Pi_prior_inSEXP, SEXP r_initSEXP) {
@@ -140,6 +188,9 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_HSMap_fs_loglik_cpp", (DL_FUNC) &_HSMap_fs_loglik_cpp, 6},
+    {"_HSMap_op_estep_cpp", (DL_FUNC) &_HSMap_op_estep_cpp, 5},
+    {"_HSMap_fs_estep_cpp", (DL_FUNC) &_HSMap_fs_estep_cpp, 7},
     {"_HSMap_hmm_hs_cpp_parallel", (DL_FUNC) &_HSMap_hmm_hs_cpp_parallel, 13},
     {"_HSMap_gamma_cpp", (DL_FUNC) &_HSMap_gamma_cpp, 6},
     {"_HSMap_hmm_hs_joint_cpp", (DL_FUNC) &_HSMap_hmm_hs_joint_cpp, 12},
