@@ -1,0 +1,4 @@
+# Link the RcppParallel runtime (TBB; falls back to TinyThread where TBB is
+# unavailable). The package uses RcppParallel's parallelFor/parallelReduce, not
+# OpenMP, so no OpenMP flags are required. C++ standard is left at R's default.
+PKG_LIBS += $(shell ${R_HOME}/bin/Rscript -e "RcppParallel::RcppParallelLibs()")
