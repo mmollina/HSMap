@@ -22,15 +22,24 @@ reference:
   - plot_phase
 - title: "Multipoint HMM mapping"
   contents:
+  - hmm_map_source_aware
   - hmm_map
   - hmm_map_joint
   - hmm_map_blocks
 - title: "Map reporting and plotting"
   contents:
   - get_block_map
+  - get_map
   - plot_block_map
   - plot_map_list
+  - plot_map_lmv
   - haldane
+- title: "Framework-map construction and order diagnostics"
+  contents:
+  - diagnose_map_intervals
+  - collapse_framework_blocks
+  - try_marker
+  - ripple_map
 - title: "Decoding and diagnostics"
   contents:
   - calc_haploprob

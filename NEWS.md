@@ -1,3 +1,45 @@
+# HSMap 0.2.0
+
+Public release aligned with the methodological manuscript (in preparation).
+
+## The source-aware estimator is now the production mapping model
+
+- New exported estimator **`hmm_map_source_aware()`**: a chromosome-wide maternal
+  HMM whose hidden state pairs the transmitted maternal homolog with a paternal
+  *source* state — the ordinary pollen-population modes (`U0`, `U1`) or a
+  haplotype-**sharing** mode (`H1`, `H2`) in which the transmitted paternal allele
+  coincides with an allele carried by one of the dam's own homologs. Persistent
+  sharing tracts (as arise when some pollen parents are related to the dam) are
+  modelled explicitly instead of being absorbed into the maternal recombination
+  map. The sharing states are a statistical description of shared-haplotype
+  tracts, not father identification and not proof of identity by descent.
+- The paternal side contributes exactly two estimated scalars: the sharing-mode
+  entry probability `alpha` and exit probability `beta`; within a tract the
+  associated homolog is retained (no switching between `H1` and `H2`).
+- **Exact `(alpha, beta)` M-step.** The initial distribution places the paternal
+  process at its stationary sharing probability `pi_H = alpha/(alpha+beta)`, so
+  both parameters enter the expected complete-data log-likelihood through the
+  initial state as well as the transitions. The M-step maximizes that full
+  objective in closed form up to one scalar root, restoring the EM ascent
+  guarantee (this supersedes the transition-only update, which is not the M-step
+  of this model).
+- **Exact nesting:** `alpha = 0` makes the sharing states unreachable and
+  recovers the population-mode estimator (`hmm_map()`) exactly; `fit_mode =
+  FALSE` holds `alpha`/`beta` fixed for that comparison.
+- Posterior outputs per offspring: maternal homolog probabilities (`gammaM`),
+  per-interval posterior maternal recombination (`xi`), and sharing-mode
+  occupancy (`gammaH`).
+
+## Documentation
+
+- README, vignette, and package `Description` rewritten around the final
+  source-aware workflow; the population-mode estimator is documented as the
+  `alpha = 0` special case and as the phase-block-safe fitting engine
+  (`hmm_map_blocks()`).
+- New test suite for the source-aware model and its M-step
+  (`test-source-aware.R`, `test-source-aware-mstep.R`); the full package suite
+  now stands at 2,200+ assertions.
+
 # HSMap 0.1.0
 
 First public release candidate.

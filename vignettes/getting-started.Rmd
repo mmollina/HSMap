@@ -13,24 +13,41 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 6, fig.height
 
 ## Overview
 
-HSMap infers maternal recombination and linkage phase in an **open-pollinated diploid
-half-sib family**: one known dam, many offspring, and **unknown sires**. Transmission
-along an ordered marker set is modelled with a maternal-only hidden Markov model (HMM).
-The hidden state is the maternal homolog transmitted to an offspring, transitions encode
-recombination between adjacent markers, and the unknown paternal contribution is
-integrated out of the emissions through a per-marker paternal gametic frequency estimated
-jointly with the map. Pooling several dams under one shared recombination map, and
-known-sire / full-sib crosses, are extensions developed in a **companion paper
-(forthcoming)**; Section 5 previews the multi-dam pooling.
+HSMap builds a **maternal linkage map** in a **diploid half-sib /
+open-pollinated family**: one known, genotyped dam, many offspring, and
+**unknown fathers**. The supported design is exactly this
+one-known-maternal-parent case.
 
-This vignette walks through the workflow on simulated data:
+Along an ordered marker set, transmission is modelled with a hidden Markov
+model. In the production **source-aware** model the hidden state pairs the
+transmitted maternal homolog with a paternal *source* state: alongside the
+ordinary pollen-population modes (`U0`, `U1`, transmitting paternal allele 0
+or 1), the paternal process may occupy a haplotype-**sharing** mode (`H1`,
+`H2`) in which the transmitted paternal allele coincides with the allele
+carried by one of the dam's own homologs. Such persistent sharing tracts arise
+in open-pollinated families when some pollen parents are related to the dam;
+modelled explicitly, they are kept out of the maternal recombination map
+instead of inflating it.
 
-1. simulate a family,
-2. two-point (pairwise) analysis,
-3. phasing,
-4. the multipoint HMM map,
-5. the joint multi-dam map (*forthcoming extension*),
-6. per-offspring haplotype probabilities.
+Two things about the sharing states matter for interpretation:
+
+- they are a **statistical description** of shared-haplotype tracts — not
+  father identification, not pedigree reconstruction, and not proof of
+  identity by descent;
+- the paternal side contributes exactly **two estimated scalars**: the
+  probability of entering (`alpha`) and of leaving (`beta`) the sharing mode.
+  Setting `alpha = 0` makes the sharing states unreachable and recovers the
+  simpler **population-mode** estimator (`hmm_map()`) *exactly*.
+
+This vignette walks the full workflow on simulated data:
+
+1. simulate a family / read data,
+2. two-point (pairwise) analysis and filtering,
+3. grouping and ordering,
+4. phasing,
+5. the source-aware chromosome-wide map,
+6. population-mode and phase-block-safe fitting,
+7. per-offspring maternal inheritance probabilities.
 
 ```{r}
 library(HSMap)
@@ -54,11 +71,14 @@ sim1 <- sim_multi_pop(
   paternal_pA_base = 0.4,                          # unknown-sire allele frequency
   error_rate = 0.01, seed = 2024
 )
+dat1 <- structure(list(G_list = sim1$G_list, M_list = sim1$M_list),
+                  class = "HSMap.data")
+markers <- sim1$truth$markers_union
 ```
 
 Real data is loaded from a pedigree CSV and a genotype CSV with
-`read_HSMap_data()`. A small **simulated** open-pollinated example ships with the
-package, so the reader runs without any private files:
+`read_HSMap_data()`. A small **simulated** open-pollinated example ships with
+the package, so the reader runs without any private files:
 
 ```{r}
 ped  <- system.file("extdata", "example_pedigree.csv",  package = "HSMap")
@@ -67,32 +87,26 @@ example_dat <- read_HSMap_data(ped, geno)
 example_dat
 ```
 
-An `HSMap.data` object is, at its core, a list of per-family offspring genotype
-matrices (`G_list`, coded `0/1/2/NA`) and maternal genotype vectors (`M_list`). For
-the rest of this tutorial we wrap the simulated genotypes from Section 1 directly:
-
-```{r}
-dat1 <- structure(list(G_list = sim1$G_list, M_list = sim1$M_list),
-                  class = "HSMap.data")
-markers <- sim1$truth$markers_union
-```
-
 ## 2. Two-point analysis
 
-`pairwise_rf()` estimates a recombination fraction and a phase LOD for every marker
-pair, sharing the recombination fraction across informative families while estimating
-a dam-specific paternal gametic frequency and profiling phase per dam.
+`pairwise_rf()` estimates a recombination fraction and a phase LOD for every
+marker pair, estimating a dam-specific paternal gametic frequency and
+profiling phase per dam. `tpt_filter()` screens the two-point table before
+grouping and ordering.
 
 ```{r}
 tpt <- pairwise_rf(dat1, threads = 2)
 round(tpt$fit$r[1:5, 1:5], 3)
 ```
 
-For *de novo* analyses you would cluster markers into linkage groups with
-`group_markers()` and order each group with `mds_order()`. Here the simulated
-markers are already in order, so we use that order directly.
+## 3. Grouping and ordering
 
-## 3. Phasing
+For *de novo* analyses, cluster markers into linkage groups with
+`group_markers()` and order each group with `mds_order()` (both operate on the
+filtered two-point object). Here the simulated markers are already in order,
+so we use that order directly.
+
+## 4. Phasing
 
 `phase_from_pairwise()` turns the pairwise phase calls into one ordered
 coupling/repulsion configuration per dam, via a signed-graph optimisation.
@@ -102,91 +116,92 @@ ph1 <- phase_from_pairwise(tpt, order = markers)
 head(ph1$phase_vec)        # 1 = coupling, 0 = repulsion, per interval
 ```
 
-## 4. Multipoint HMM map
+## 5. The source-aware chromosome-wide map
 
-With phase held fixed, `hmm_map()` fits the maternal HMM by EM. The genotyping
-error rate `epsilon` is fixed at the assay's expected value (here 1%).
+With phase held fixed, `hmm_map_source_aware()` fits the production model by
+EM: maternal recombination fractions shared by all offspring, plus the two
+paternal scalars `alpha` (sharing entry) and `beta` (sharing exit). The
+genotyping error rate `epsilon` is fixed at the assay's expected value (here
+1%), and the `(alpha, beta)` M-step is exact — it includes the stationary
+initial-state term, so each EM iteration has the usual ascent guarantee.
 
 ```{r}
-map1 <- hmm_map(dat1, phased = ph1, dam = 1, epsilon = 0.01)
-
-# Total map length. Do NOT summarise a map with `sum(inv_haldane(map1$fit$r))` in
-# general: an interval at no linkage (r ~ 0.5) would be turned into a huge finite cM
-# distance. Use the gap-aware `get_block_map()`, which reports no-linkage / unresolved
-# intervals as gaps (NA) and never inflates them. Here the family is fully resolved, so
-# the blockwise map is a single block:
-bm1 <- get_block_map(hmm_map_blocks(dat1, ph1), "haldane")
-bm1$total_linked_length             # gap-safe total map length in cM (Haldane)
+sa <- hmm_map_source_aware(dat1, phased = ph1, dam = 1, epsilon = 0.01)
+sa
 ```
 
+The fitted object separates the two processes:
+
+```{r}
+sum(sa$dist, na.rm = TRUE)   # maternal map length, cM (Haldane); gaps are NA
+c(alpha = sa$alpha, beta = sa$beta)
+mean(sa$gammaH)              # posterior sharing-mode occupancy
+```
+
+In this simulation the sires are unrelated to the dam, so the estimated
+`alpha` is at (or near) its lower bound and the sharing-mode occupancy is
+essentially zero — the model collapses to the population-mode estimator, as it
+should on data with no sharing. On real open-pollinated data with dam-related
+pollen parents, `gammaH` localises the sharing tracts per offspring, and the
+map length is protected from their inflation.
+
+Interpretation reminders: `gammaH` is posterior occupancy of a *statistical*
+sharing mode; high-occupancy segments flag offspring–region pairs where the
+paternal allele stream tracks a dam homolog. They do not identify fathers and
+are not, by themselves, evidence of identity by descent.
+
+## 6. Population mode and unresolved phase
+
+`hmm_map()` is the `alpha = 0` special case; it remains the engine for
+phase-block-safe fitting. When the pairwise phase graph breaks into
+disconnected components (dams heterozygous at different marker subsets), some
+adjacent intervals have **unresolved** relative phase, and `hmm_map()` refuses
+to run through them. The safe workflow is `hmm_map_blocks()`, which fits
+within each resolved phase block:
+
+```{r}
+blocks <- hmm_map_blocks(dat1, ph1)
+bm1 <- get_block_map(blocks, "haldane")
+bm1$total_linked_length             # gap-safe total map length in cM (Haldane)
+table(bm1$interval_table$status)    # linked / gap classification per interval
+```
+
+Never summarise a map with `sum(inv_haldane(r))` directly: an interval at no
+linkage (r near 0.5) would become a huge finite distance. The blockwise
+summary reports such intervals as gaps (`NA`), and within-block segments reset
+after each gap.
+
 ```{r, fig.alt = "Linkage map of the single family as a track of marker positions in centiMorgans."}
+map1 <- hmm_map(dat1, phased = ph1, dam = 1, epsilon = 0.01)
 plot_map_list(map1, map.function = "haldane")
 ```
 
-## 5. Extension (forthcoming): joint multi-dam map
+For framework-map work on real data, `diagnose_map_intervals()` classifies
+every adjacent interval of a fitted map by multipoint/two-point concordance,
+`collapse_framework_blocks()` applies user-directed collapses of locally
+discordant blocks, and `try_marker()` / `ripple_map()` provide local order
+diagnostics. `get_map()` exports positions under Haldane, Kosambi, or Morgan
+map functions.
 
-> **This section previews a forthcoming extension** — pooling several dams under one
-> shared recombination map — described in a companion paper. It is included in the
-> software but is beyond the single-family method above.
+## 7. Per-offspring maternal inheritance probabilities
 
-Now three dams that share one map but have independent phase and unknown,
-heterogeneous sires. With `maternal_geno_mode = "HWE"` the dams are heterozygous at
-*different* subsets of markers — exactly the case where pooling across families
-helps.
-
-```{r}
-sim3 <- sim_multi_pop(
-  T_markers = Tm, n_pops = 3, n_ind_per_pop = c(120, 100, 80),
-  r_vec = r_true,
-  phase_mode = "random", repulsion_rate = 0.3,
-  maternal_geno_mode = "HWE", maternal_pA = 0.5,
-  paternal_pA_base = 0.4, paternal_pA_sd = 0.05,
-  error_rate = 0.01, seed = 99
-)
-dat3 <- structure(list(G_list = sim3$G_list, M_list = sim3$M_list),
-                  class = "HSMap.data")
-mk3 <- sim3$truth$markers_union
-
-tpt3 <- pairwise_rf(dat3, threads = 2)
-ph3  <- phase_from_pairwise(tpt3, order = mk3, dam = "all")   # one entry per dam
-```
-
-When dams are heterozygous at different marker subsets, the pairwise phase graph can
-break into disconnected components, so some adjacent intervals have an **unresolved**
-relative phase (`NA` in `phase_vec`). `hmm_map()` deliberately refuses to run through
-unresolved phase; the safe workflow is `hmm_map_blocks()`, which splits the order into
-resolved phase blocks and fits the shared joint EM **within each block**:
-
-```{r}
-joint <- hmm_map_blocks(dat3, ph3)     # fits the joint map within each resolved block
-joint$n_blocks                          # number of resolved phase blocks
-# Safe map summary: gaps (no-linkage / unresolved) are NA, never huge cM. Never use
-# raw sum(inv_haldane(r)) here, because r may contain a no-linkage boundary.
-bm <- get_block_map(joint, "haldane")
-bm$total_linked_length                  # finite linked cM summed across blocks
-table(bm$interval_table$status)         # linked / gap classification per interval
-```
-
-Each block carries a valid ordered marker set with resolved phase for its contributing
-dams; intervals between blocks are reported as gaps rather than as large centimorgan
-distances. If the whole chromosome is resolved, `hmm_map_blocks()` returns a single
-block identical to the ordinary joint `hmm_map()`. A legacy per-dam-then-average
-estimator is available for comparison via `hmm_map(..., method = "consensus")` on a
-fully resolved order.
-
-## 6. Per-offspring haplotype probabilities
-
-`calc_haploprob()` returns, for each offspring and marker, the posterior probability
-of having inherited each maternal homolog. It accepts a fitted map with resolved phase;
-here we decode the single-dam map from Section 3:
+`calc_haploprob()` returns, for each offspring and marker, the posterior
+probability of having inherited each maternal homolog (the source-aware fit
+carries the same information in its `gammaM` element). These posteriors are
+the inputs for downstream analyses such as QTL mapping or crossover counting.
 
 ```{r}
 gp <- calc_haploprob(dat1, map1)    # HSMap.gamma for the fitted (resolved) map
 dim(gp$gamma)                       # [2 homologs, markers, offspring]
 ```
 
-These posteriors are the inputs for downstream analyses such as QTL mapping or
-crossover counting.
+## Extensions (companion paper, forthcoming)
+
+Pooling several dams under one shared map (`hmm_map_joint()`,
+`hmm_map_blocks()` on several dams, `test_map_heterogeneity()`) and known-sire
+/ full-sib crosses are extensions of this single-family core. They are
+included in the software but are documented in a companion paper (forthcoming)
+and are not part of the released method's paper.
 
 ## Session info
 

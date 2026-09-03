@@ -1,7 +1,7 @@
 Package: HSMap
 Type: Package
 Title: Maternal Linkage Mapping in Open-Pollinated Diploid Families
-Version: 0.1.0
+Version: 0.2.0
 Authors@R: c(
     person("Marcelo", "Mollinari", email = "mmollina@gmail.com",
            role = c("aut", "cre")),
@@ -9,15 +9,22 @@ Authors@R: c(
     person("Molly", "Irvin", role = "aut"),
     person("Fikret", "Isik", role = "aut")
   )
-Description: A fast C++ (Rcpp) maternal hidden Markov model for building maternal
-             linkage maps in open-pollinated (unknown-sire) diploid half-sib families.
-             For a single family, the unknown paternal contribution is integrated out
-             through a per-marker paternal gametic frequency estimated jointly with the
-             recombination map; maps are fitted within resolved phase blocks, and
-             no-linkage intervals are reported as gaps rather than large centimorgan
-             distances. Extensions that pool several dams under one shared map (via a
-             joint EM) and that handle known-sire full-sib crosses are included and
-             documented as forthcoming.
+Description: Builds maternal linkage maps in open-pollinated (unknown-sire) diploid
+             half-sib families: one known, genotyped dam, many offspring, and
+             unobserved fathers. Chromosome-wide maps are fitted with a source-aware
+             hidden Markov model whose state pairs the transmitted maternal homolog
+             with a paternal source state, so that persistent paternal
+             haplotype-sharing tracts (as arise when some pollen parents are related
+             to the dam) are modelled explicitly instead of being absorbed into the
+             maternal recombination map. Setting the sharing-entry rate to zero
+             recovers the simpler population-mode estimator exactly. The package also
+             provides two-point recombination estimation, dam phase assembly, marker
+             grouping and ordering, framework-map construction, and per-offspring
+             maternal inheritance probabilities; maps are fitted within resolved
+             phase blocks, and no-linkage intervals are reported as gaps rather than
+             large centimorgan distances. Extensions that pool several dams under one
+             shared map (via a joint EM) and that handle known-sire full-sib crosses
+             are included and documented as forthcoming.
 License: MIT + file LICENSE
 URL: https://github.com/mmollina/HSMap
 BugReports: https://github.com/mmollina/HSMap/issues

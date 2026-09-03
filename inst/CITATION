@@ -10,6 +10,6 @@ bibentry(
     person("Fikret", "Isik")
   ),
   year     = "2026",
-  note     = "R package version 0.1.0. A methods paper is in preparation.",
+  note     = "R package version 0.2.0. A methods paper is in preparation.",
   url      = "https://github.com/mmollina/HSMap"
 )
