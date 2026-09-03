@@ -39,12 +39,20 @@ jobs:
           http-user-agent: ${{ matrix.config.http-user-agent }}
           use-public-rspm: true
 
+      # LinkageMapView (Suggests, used conditionally by plot_map_lmv()) was
+      # archived on CRAN on 2026-05-04, so installing "all" dependencies fails
+      # the solver on every platform. Install hard dependencies plus the
+      # packages the check itself needs, and tell R CMD check not to require
+      # missing suggests.
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: any::rcmdcheck
+          dependencies: '"hard"'
+          extra-packages: any::rcmdcheck, any::testthat, any::knitr, any::rmarkdown
           needs: check
 
       - uses: r-lib/actions/check-r-package@v2
+        env:
+          _R_CHECK_FORCE_SUGGESTS_: false
         with:
           upload-snapshots: true
           build_args: 'c("--no-manual","--compact-vignettes=gs+qpdf")'
